@@ -2,14 +2,14 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 文件版本 | 2.1 |
+| 文件版本 | 2.3 |
 | 初版日期 | 2026-07-28 |
-| 最後更新 | 2026-08-21 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.10.0） |
-| 最新腳本大小 | 141610 bytes（約 138.3 KB） |
+| 最後更新 | 2026-09-07 |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.10.2） |
+| 最新腳本大小 | 152951 bytes（約 149.4 KB） |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
-> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單。前面章節中的「未完成」為當時狀態，最新完成狀態以第 26 節為準。
+> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～28 節為 Rack-aware Bug 對帳與 History Added Related link 規則。前面章節中的「未完成」為當時狀態，最新完成狀態以第 28 節為準。
 
 > **2026-08-14 的 Live Query 曾驗證到 5 Racks × 每櫃 58 Test Cases = 290 Test Cases；這是當時的查詢結果，不再作為固定 Expected 基準。v1.8.6 只顯示每次 Query 的實際數量。文件中的 54／270、58／290 等數值均為各版本當時的驗證紀錄。**
 
@@ -48,7 +48,7 @@
 
 | 檔案 / Key | 說明 |
 | --- | --- |
-| `C4143-DVScale-Dashboard.user.js` | 最新主交付物與固定安裝入口，Tampermonkey userscript v1.10.0 |
+| `C4143-DVScale-Dashboard.user.js` | 最新主交付物與固定安裝入口，Tampermonkey userscript v1.10.2 |
 | `azure-devops-extension/` | Azure Test Plans Hub 與 Dashboard Widget 原始碼、manifest 與建置流程 |
 | `release/C4143-DVScale-Dashboard-Extension.vsix` | 可上傳 Visual Studio Marketplace 的 Private Extension 套件 |
 | `C4143-DVScale-Dashboard.user_v1.6.1-bug-priority-severity.js` | 上一個穩定版本，保留供回退與比對 |
@@ -322,12 +322,13 @@ document-idle → hash 含 dvdash？ → D.boot()
 | v1.9.2 | 週報與 Rack 1 Test Features 匯出改為真正的 `.xlsx`；所有 worksheet 取消凍結窗格，保留 AutoFilter、欄寬與 hyperlinks |
 | v1.10.0 | 在 v1.9.2 基礎上新增多專案 Query 選單、內建 EchoFalls C4142 Query、瀏覽器本機 Query 管理、動態標題／XLSX 匯出檔名，以及 Query-scoped snapshot／history |
 | v1.10.1 | 新增共用 Bug × Rack inventory；Overview 顯示每 Rack Bug 統計與 Rack 欄位、單 Rack Bug 高亮，Rack 分頁新增與 Overview 對帳的 Bug list |
+| v1.10.2 | Bug 僅採用 Test Case History 中 `relations.added` 的 Related link，並限制為目前仍存在且目標型別為 Bug；清單逐筆顯示 Rack、Case、加入時間與加入者 |
 
 ---
 
 ## 12. 安全與注意事項
 
-- 腳本**只做讀取**（wiql GET、workitemsbatch POST 查詢），不會修改任何 work item。
+- 腳本**只做讀取**（WIQL、workitemsbatch、Work Item Updates/History），不會修改任何 work item。
 - PAT 絕不寫入腳本或匯出檔；代理模式請由 proxy 端以環境變數持有。
 - 匯出的 snapshot HTML **內含實際 work item 資料**（標題、負責人），外流前請確認可分享。
 - 書籤網址帶 `#dvdash`，hash 不會送到伺服器，安全。
@@ -876,3 +877,32 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 1440px 與 390px Playwright QA 通過；390px `document.scrollWidth === clientWidth === 390`，Browser Console 與 page errors 均為 0。
 - `node --check`、`git diff --check`、TypeScript check、esbuild 與 VSIX package 通過。Extension v1.1.1 為 52,721 bytes，內含 userscript v1.10.1、Hub、Widget、manifest 與 icon。
 - 測試使用本機 fixture，未對 Azure DevOps Query、Work Item 或 organization 執行任何寫入。
+
+---
+
+## 28. 2026-09-07 Test Case History Added Related Bug 規則（v1.10.2）
+
+### 28.1 Bug 納入條件
+
+- 不再把 Test Case 的所有 Work Item relations 都當成候選 Bug。
+- 先從 Test Case 目前的 relations 中只保留 `System.LinkTypes.Related`，批次讀取目標 Work Item 並確認 `System.WorkItemType = Bug`。
+- 只針對已確認為 Bug 的候選 Case 執行唯讀 `GET .../_apis/wit/workItems/{caseId}/updates?api-version=7.1`，並要求同一個 Bug ID 曾出現在 `update.relations.added` 且 relation type 仍為 `System.LinkTypes.Related`。
+- History 中曾新增、但目前已解除的 Related link 不會列入；Hierarchy、Dependency、Duplicate、Attached File 等其他 link type 也不列入。
+- History API 最多同時執行 6 個 Case 請求並支援 200 筆分頁。單一 Case 失敗時只略過該 Case 的 Bug，其他 Query／Rack／Case 資料照常顯示，提示會回報失敗數量。
+
+### 28.2 Rack、Case 與 Bug 來源追蹤
+
+- 共用 inventory 擴充為每一筆 `Rack × Case × Bug` link attribution，保存 Related link 的 Added time、Added by 與 revision。
+- Overview 與 Rack Bug table 的最後一欄改為 **Added Related sources (Rack → Case)**，逐筆顯示 Rack chip、可點擊 Case ID、加入時間與加入者。
+- Overview unique Bug、每 Rack unique Bug、Rack-only/shared、affected Cases 與各 Rack Bug table 仍由同一份 inventory 計算。
+- Case hierarchy 與 Test Features 中的 `BUG #ID` 只顯示符合上述 History 規則的 Bug；滑鼠提示會補上該 Case 的 link 加入時間與加入者。
+
+### 28.3 驗證結果
+
+- 模擬 History 同時包含 Related Bug、Hierarchy Bug、Related Task，以及不在目前 relations 的舊 Related Bug；最後只保留目前存在且 History 確認為 Added Related 的 Bug `#900`。
+- 模擬單一 History API 失敗時，成功的 Case 結果仍保留，失敗 Case ID 被收集為部分資料警告。
+- 290 Case fixture：Overview 37 unique Bugs、42 筆 Rack/Case/Bug sources；每 Rack unique 為 `[9, 9, 8, 8, 8]`，Rack 1 table 為 9 Bugs／9 sources，與 Overview Rack 1 完全一致。
+- 285 Case alternate fixture：週報 285 rows、Test Features 57 rows；Bug inventory 與 Rack 對帳仍通過。
+- 1440 × 900 與 390 × 844 browser QA 通過；行動版 `document.scrollWidth === clientWidth === 390`，Console／page errors 為 0。
+- JavaScript syntax、`git diff --check`、Extension TypeScript、esbuild 與 VSIX package 均通過。Extension v1.1.2 為 53,926 bytes，內含 userscript v1.10.2、Hub、Widget、manifest 與 icon。
+- 所有驗證均為唯讀；未建立或修改 Azure DevOps Query、Work Item 或 organization。新的 userscript 尚未在已登入的正式 Query 上執行，因此正式 Bug 數量應在 Tampermonkey 更新到 v1.10.2 後按 **Re-run query** 再確認。
