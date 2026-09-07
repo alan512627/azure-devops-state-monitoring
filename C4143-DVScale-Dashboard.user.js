@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.10.0
-// @description  Adds a multi-project Query selector, real Test Results, XLSX exports, query-scoped snapshots, and Extension support.
+// @version      1.10.1
+// @description  Adds Rack-aware Bug reconciliation, a multi-project Query selector, real Test Results, XLSX exports, and Extension support.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -481,6 +481,41 @@
     cases.forEach(function (c) { (c.bugs || []).forEach(function (bug) { if (!seen[bug.id]) { seen[bug.id] = 1; bugs.push(bug); } }); });
     return bugs;
   };
+  D.bugInventory = function (racks) {
+    var grouped = {}, entries = [];
+    (racks || []).forEach(function (rack) {
+      var rackKey = String(rack.id || rack.label || 'Rack');
+      D.collect(rack, 'Test Case').forEach(function (testCase) {
+        (testCase.bugs || []).forEach(function (bug) {
+          var bugKey = String(bug.id || ''); if (!bugKey) return;
+          if (!grouped[bugKey]) {
+            grouped[bugKey] = { bug: bug, cases: [], caseIds: {}, racks: [], racksByKey: {} };
+            entries.push(grouped[bugKey]);
+          }
+          var entry = grouped[bugKey];
+          if (!entry.caseIds[testCase.id]) { entry.caseIds[testCase.id] = 1; entry.cases.push(testCase); }
+          if (!entry.racksByKey[rackKey]) {
+            entry.racksByKey[rackKey] = { rack: rack, cases: [], caseIds: {} };
+            entry.racks.push(entry.racksByKey[rackKey]);
+          }
+          var rackEntry = entry.racksByKey[rackKey];
+          if (!rackEntry.caseIds[testCase.id]) { rackEntry.caseIds[testCase.id] = 1; rackEntry.cases.push(testCase); }
+        });
+      });
+    });
+    entries.sort(function (a, b) { return (+a.bug.id || 0) - (+b.bug.id || 0) || String(a.bug.id).localeCompare(String(b.bug.id)); });
+    return entries;
+  };
+  D.bugEntriesForRack = function (inventory, rack) {
+    var rackKey = String(rack && (rack.id || rack.label) || '');
+    return (inventory || []).filter(function (entry) { return !!entry.racksByKey[rackKey]; });
+  };
+  D.inventoryBugView = function (entry) {
+    return Object.assign({}, entry.bug, {
+      rackOnly: entry.racks.length === 1,
+      rackLabels: entry.racks.map(function (rackEntry) { return rackEntry.rack.label; })
+    });
+  };
   D.rate = function (count, total) {
     if (!count || !total) return '0%';
     var percentage = Math.min(100, Math.max(0, count * 100 / total));
@@ -560,6 +595,8 @@
     var list = D.el('div', 'hbar-list');
     rows.forEach(function (row) {
       var item = D.el('div', 'hbar-row' + (row.total ? ' total' : ''));
+      if (row.dataRack) item.setAttribute('data-bug-rack', row.dataRack);
+      if (row.dataCount != null) item.setAttribute('data-bug-count', row.dataCount);
       var head = D.el('div', 'hbar-head');
       head.appendChild(D.el('span', 'hbar-label', row.label));
       head.appendChild(D.el('span', 'hbar-value', row.valueText));
@@ -674,8 +711,32 @@
     var title = priorityKey === 'unknown' ? 'Priority not set' : 'Priority P' + priorityKey;
     return D.horizontalBarChart(title + ' (' + D.countLabel(priorityBugs.length, 'bug') + ')', rows);
   };
-  D.bugStats = function (cases) {
-    var bugs = D.uniqueBugs(cases), wrap = D.el('div');
+  D.bugRackStats = function (inventory, racks) {
+    var wrap = D.el('div', 'bug-rack-stats');
+    var rackOnlyCount = inventory.filter(function (entry) { return entry.racks.length === 1; }).length;
+    var sharedCount = inventory.length - rackOnlyCount;
+    wrap.appendChild(D.el('div', 'metric-total', 'Overview unique Bugs: ' + inventory.length + ' · Rack-only: ' + rackOnlyCount + ' · Shared across Racks: ' + sharedCount));
+    wrap.appendChild(D.el('div', 'small bug-highlight-note', 'Gold highlight = this Bug is linked from Test Cases in only one Rack. Rack totals include shared Bug IDs in every Rack where they occur.'));
+    var rows = (racks || []).map(function (rack) {
+      var entries = D.bugEntriesForRack(inventory, rack);
+      var rackOnly = entries.filter(function (entry) { return entry.racks.length === 1; }).length;
+      var bugs = entries.map(D.inventoryBugView);
+      return {
+        label: rack.label,
+        valueText: entries.length + ' unique Bugs · ' + rackOnly + ' Rack-only · ' + (entries.length - rackOnly) + ' shared',
+        percent: inventory.length ? entries.length * 100 / inventory.length : 0,
+        items: bugs,
+        kind: 'bug',
+        color: rackOnly ? '#facc15' : '#38bdf8',
+        dataRack: rack.label,
+        dataCount: entries.length
+      };
+    });
+    wrap.appendChild(D.horizontalBarChart('Bug distribution by Rack — expandable Bug IDs', rows, 'No linked Bugs found yet'));
+    return wrap;
+  };
+  D.bugStats = function (cases, inventory) {
+    var bugs = inventory ? inventory.map(function (entry) { return entry.bug; }) : D.uniqueBugs(cases), wrap = D.el('div');
     wrap.appendChild(D.el('div', 'metric-total', 'Total unique Bugs: ' + bugs.length));
     var allBugIds = D.idDropdown(bugs, 'bug'); if (allBugIds) wrap.appendChild(allBugIds);
     wrap.appendChild(D.el('div', 'small', 'Severity percentages are calculated within each Bug Priority.'));
@@ -938,12 +999,13 @@
   D.CSS += "\n.type-badge{font-weight:700;letter-spacing:.02em}\n.colour-key{display:inline-flex;flex-wrap:wrap;gap:5px;align-items:center;padding-left:8px;border-left:1px solid #27395c}\n.tab{font-size:14px;padding:10px 18px;min-height:40px}\n.banner{position:fixed;right:20px;bottom:20px;z-index:100;max-width:min(680px,calc(100vw - 40px));margin:0;padding:11px 14px;box-shadow:0 14px 36px rgba(0,0,0,.38);opacity:1;transform:translateY(0);transition:opacity .7s ease,transform .7s ease;pointer-events:auto}\n.banner.fading{opacity:0;transform:translateY(10px);pointer-events:none}\n.cards{display:flex;flex-wrap:nowrap;gap:12px;width:100%;align-items:stretch;overflow-x:auto;scrollbar-width:thin}\n.cards>.card{flex:1 0 118px;width:auto;min-width:118px;max-width:none;overflow:hidden;padding-left:12px;padding-right:12px}\n.card{position:relative;transition:transform .15s,filter .15s}\n.card:hover{transform:translateY(-2px);filter:brightness(1.12)}\n.card .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.card .v{white-space:nowrap;overflow:visible;text-overflow:clip;font-variant-numeric:tabular-nums;line-height:1.2;min-height:28px;display:flex;align-items:center}\n.tree-toolbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:66.6667%;max-width:100%;margin-bottom:14px;align-items:center}\n.tree-toolbar>button,.tree-toolbar>input{width:100%;min-width:0}\n.bug-link{display:inline-flex;align-items:center;border:1px solid rgba(248,113,113,.72);border-radius:999px;padding:2px 8px;background:rgba(248,113,113,.14);color:#fecaca;font-size:11px;font-weight:700;white-space:nowrap}\n.bug-link:hover{background:rgba(248,113,113,.25);color:#fff;text-decoration:none}\n.caserow{margin:3px 0;border-radius:6px;border-bottom-color:transparent;transition:filter .15s,transform .15s}\n.caserow:hover{filter:brightness(1.18);transform:translateX(2px)}\ndetails.node{overflow:hidden;transition:filter .15s,border-color .15s}\ndetails.node:hover{filter:brightness(1.08)}\n@media(max-width:720px){.tab{font-size:14px;padding:9px 14px;min-height:38px;flex:1 1 auto}.banner{right:12px;bottom:12px;max-width:calc(100vw - 24px)}.colour-key{width:100%;padding:6px 0 0;border-left:0;border-top:1px solid #27395c}.casetitle{min-width:150px}.tree-toolbar{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.tree-toolbar>input{grid-column:1/-1}}";
   D.CSS += "\n.tab{font-size:18px;padding:10px 29px;min-height:42px}\n.metric-badge{display:inline-flex;align-items:center;border:1px solid;border-radius:5px;padding:2px 6px;font-size:10.5px;font-weight:700;white-space:nowrap}\n.metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:10px 0 14px}\n.metric-section{min-width:0;padding:10px;border:1px solid #1c2942;border-radius:8px;background:#0f1a2e;overflow-x:auto}\n.metric-section h4{margin:0 0 8px;color:#cfe3ff;font-size:12px}\n.metric-total{font-size:12px;color:#bcd9ff;margin:2px 0 8px;font-weight:700}\n.case-links{display:inline;line-height:1.8}\n@media(max-width:980px){.metric-grid{grid-template-columns:1fr}}\n@media(max-width:720px){.tab{font-size:16px;padding:9px 18px;min-height:40px}}";
   D.CSS += "\n.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}\n.metric-stack{display:grid;gap:12px;align-content:start;min-width:0}\n.metric-section{overflow:hidden}\n.hbar-list{display:grid;gap:10px}\n.hbar-row{padding:9px 10px;border:1px solid #1c2942;border-radius:8px;background:#111d33}\n.hbar-row.total{border-color:#2d527d;background:#12223b}\n.hbar-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px}\n.hbar-label{min-width:0;color:#dbeafe;font-size:12px;font-weight:700;overflow-wrap:anywhere}\n.hbar-value{flex:none;color:#a9bdd8;font-size:11px;font-variant-numeric:tabular-nums;text-align:right}\n.hbar-track{height:12px;border-radius:999px;background:#1c2942;overflow:hidden}\n.hbar-fill{height:100%;border-radius:inherit;transition:width .25s ease}\n.hbar-details{margin-top:5px;color:#8fa3c0;font-size:11px}\n.hbar-details>summary{display:flex;align-items:center;min-height:32px;width:max-content;max-width:100%;cursor:pointer;color:#7dd3fc;font-weight:600;list-style:none}\n.hbar-details>summary::-webkit-details-marker{display:none}\n.hbar-details>summary:before{content:'\\25B8';margin-right:5px;color:#5b7ba6;transition:transform .15s}\n.hbar-details[open]>summary:before{transform:rotate(90deg)}\n.hbar-details>summary:hover{color:#bae6fd}\n.hbar-details>summary:focus-visible{outline:2px solid #38bdf8;outline-offset:2px;border-radius:4px}\n.hbar-links{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 2px 16px}\n@media(max-width:980px){.metric-grid{grid-template-columns:1fr}}\n@media(max-width:720px){.hbar-head{align-items:flex-start;flex-direction:column;gap:3px}.hbar-value{text-align:left}.hbar-row{padding:9px}.hbar-details>summary{min-height:40px}.hbar-links{padding-left:8px}}";
-  D.CSS += "\n.bug-detail-scroll{max-width:100%;overflow-x:auto;margin-top:8px}\n.bug-detail-scroll>table{min-width:640px}";
+  D.CSS += "\n.box{min-width:0;max-width:100%;overflow-x:auto}\n.grid{min-width:0;max-width:100%}\n.bug-detail-scroll{max-width:100%;overflow-x:auto;margin-top:8px}\n.bug-detail-scroll>table{min-width:880px}\n.bug-rack-stats{display:grid;gap:10px;margin-bottom:16px}\n.bug-highlight-note{color:#fde68a}\n.bug-link.rack-only{border-color:#facc15;background:rgba(250,204,21,.18);color:#fef08a;box-shadow:0 0 0 1px rgba(250,204,21,.14)}\n.bug-link.rack-only:hover{background:rgba(250,204,21,.3);color:#fff}\ntr.bug-rack-only>td{background:rgba(250,204,21,.075)}\ntr.bug-rack-only>td:first-child{box-shadow:inset 3px 0 0 #facc15}\n.bug-rack-cell{display:flex;flex-wrap:wrap;gap:5px;min-width:130px}\n.bug-rack-chip{display:inline-flex;align-items:center;border:1px solid #365477;border-radius:999px;padding:2px 7px;background:#152944;color:#bfdbfe;font-size:11px;font-weight:700;white-space:nowrap}\n.bug-rack-chip.rack-only{border-color:#facc15;background:rgba(250,204,21,.16);color:#fef08a}\n.rack-bug-reconcile{margin:0 0 8px;color:#bfdbfe;font-size:12px}";
   D.CSS += "\n.suite-intro{margin:0 0 12px;color:#9fb3d0;font-size:12px}\n.suite-toolbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;width:min(980px,100%);margin-bottom:14px}\n.suite-toolbar>*{width:100%;min-width:0}\n.feature-groups{display:grid;gap:8px}\ndetails.feature-group{min-width:0;border:1px solid #253858;border-radius:9px;background:#0f1a2e;overflow:hidden}\ndetails.feature-group[open]{border-color:#35618f;background:#101d33}\n.feature-summary{display:flex;align-items:center;gap:8px;padding:11px 13px;cursor:pointer;list-style:none}\n.feature-summary::-webkit-details-marker{display:none}\n.feature-summary:before{content:'\\25B8';color:#7dd3fc;transition:transform .15s}\ndetails.feature-group[open]>.feature-summary:before{transform:rotate(90deg)}\n.feature-summary:hover{background:#152744}\n.feature-group-name{color:#e0f2fe;font-size:15px;font-weight:700}\n.suite-pill{display:inline-flex;padding:2px 8px;border-radius:999px;background:#193657;color:#bae6fd;border:1px solid #2d527d;font-size:11px;font-weight:700}\n.feature-group-body{padding:0 12px 12px 28px}\n.feature-table-scroll{max-width:100%;overflow:auto;border:1px solid #1c2942;border-radius:7px}\ntable.feature-table{min-width:1480px;background:#0c1729}\n.feature-table th{position:sticky;top:0;background:#132039;z-index:1}\n.feature-table td{vertical-align:top;line-height:1.4}\n.feature-table .feature-id{width:86px;font-family:Consolas,monospace}\n.feature-table .feature-title{min-width:420px;color:#d7e3f4}\n.feature-table .feature-owner{min-width:150px}\n.feature-table .feature-comments{min-width:240px;max-width:420px;white-space:normal;overflow-wrap:anywhere}\n.feature-case-row{border-left:3px solid transparent}\n.feature-case-row:hover{background:#152341}\n.feature-bugs{min-width:160px}\n.feature-bugs .bug-link{margin:1px 4px 1px 0}\n@media(max-width:720px){.suite-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.suite-toolbar>input{grid-column:1/-1}.feature-group-body{padding-left:10px}.feature-summary{padding:12px 10px}}";
   D.CSS += "\n.dashboard-main{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:start;min-width:0}\n#panels{min-width:0}\n.tabs{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:center;gap:4px;width:64px;min-width:64px;padding:10px 6px 60px 8px}\n.tab{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:50px;min-width:50px;max-width:50px;min-height:72px;height:auto;padding:8px 5px;border:1px solid #1e2b45;border-radius:6px;background:#111d33;color:#9fb3d0;writing-mode:vertical-rl;text-orientation:mixed;white-space:nowrap;font-size:11px;line-height:1.1}\n.tab.active{background:#16243d;color:#fff;font-weight:600;box-shadow:inset 3px 0 0 #38bdf8}\n.panel{min-width:0;padding:16px 20px 60px 14px}\n@media(max-width:720px){.dashboard-main{grid-template-columns:54px minmax(0,1fr)}.tabs{width:54px;min-width:54px;padding:8px 4px 40px}.tab{width:44px;min-width:44px;max-width:44px;min-height:66px;padding:7px 4px;font-size:10px}.panel{padding:12px 10px 50px 8px}}";
   D.CSS += "\n:root{--dvdash-controls-height:52px}\n.tabs{position:sticky;top:calc(var(--dvdash-controls-height) + 8px);align-self:start;z-index:12;max-height:calc(100vh - var(--dvdash-controls-height) - 16px);overflow-y:auto;scrollbar-width:thin}\n.panel-sticky,.suite-sticky{position:sticky;top:var(--dvdash-controls-height);z-index:11;background:#0b1220;padding-top:8px;padding-bottom:12px;box-shadow:0 12px 18px rgba(3,8,18,.42)}\n.panel-sticky>.cards,.suite-sticky>.cards{margin-bottom:0}\n@media(max-width:980px), (max-height:700px){.panel-sticky,.suite-sticky{position:static;box-shadow:none;padding-top:0}}\n@media(max-width:720px){.tabs{top:calc(var(--dvdash-controls-height) + 6px);max-height:calc(100vh - var(--dvdash-controls-height) - 12px)}}";
   D.CSS += "\n.insights-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:4px 0 14px}.trend-scroll{max-width:100%;overflow-x:auto}.trend-scroll>svg{min-width:720px}.trend-table-details,.change-group{margin-top:10px;border-top:1px solid #1c2942;padding-top:6px}.trend-table-details>summary,.change-group>summary{cursor:pointer;color:#7dd3fc;font-size:12px;font-weight:600;min-height:32px;display:flex;align-items:center}.table-scroll{max-width:100%;overflow:auto}.table-scroll>table{min-width:760px}.change-list{display:grid;gap:5px;padding:5px 0}.change-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:7px 8px;border:1px solid #1c2942;border-radius:7px;background:#0f1a2e}.change-title{flex:1;min-width:220px;color:#d7e3f4}.change-state{font-size:11px;color:#f8d4a2;font-weight:700}.result-link{white-space:nowrap}@media(max-width:720px){.insights-toolbar>*{width:100%}.trend-scroll>svg{min-width:660px}.change-title{min-width:150px}}";
   D.CSS += "\n.query-control{display:inline-flex;gap:6px;align-items:center}.query-control select{min-width:260px;max-width:420px}.query-modal-backdrop{position:fixed;inset:0;z-index:200;background:rgba(3,8,18,.78);display:flex;align-items:center;justify-content:center;padding:20px}.query-modal{width:min(760px,100%);max-height:calc(100vh - 40px);overflow:auto;background:#101b30;border:1px solid #35527a;border-radius:12px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.58)}.query-modal-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.query-modal h2{margin:0;font-size:18px}.query-form{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(300px,1.6fr) auto;gap:10px;align-items:end;padding:12px;border:1px solid #253858;border-radius:9px;background:#0c1729}.query-form label{display:grid;gap:5px;color:#9fb3d0;font-size:11px}.query-form input{width:100%;min-width:0}.query-help{margin:8px 0 12px;color:#8fa3c0;font-size:11px}.query-list{display:grid;gap:7px}.query-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border:1px solid #253858;border-radius:8px;background:#0f1a2e}.query-list-name{font-weight:700;color:#dbeafe;overflow-wrap:anywhere}.query-list-meta{margin-top:3px;color:#8fa3c0;font-size:11px;overflow-wrap:anywhere}.query-error{min-height:18px;margin-top:8px;color:#fda4af;font-size:12px}@media(max-width:900px){.query-control select{min-width:190px;max-width:300px}.query-form{grid-template-columns:1fr}.query-form button{width:100%}}@media(max-width:620px){.query-control{width:100%}.query-control select{flex:1;min-width:0;max-width:none}.query-modal-backdrop{padding:8px}.query-modal{max-height:calc(100vh - 16px);padding:12px}}";
+  D.CSS += "\n@media(max-width:620px){.query-control label{flex:1;min-width:0}.query-control select{width:100%}}";
   D.card = function (k, v, tone) {
     var c = D.el('div', 'card');
     if (tone) {
@@ -966,36 +1028,42 @@
     });
   };
   D.box = function (title) { var b = D.el('div', 'box'); if (title) b.appendChild(D.el('h3', null, title)); return b; };
-  D.bugTable = function (cases) {
-    var grouped = {};
-    cases.forEach(function (testCase) {
-      (testCase.bugs || []).forEach(function (bug) {
-        if (!grouped[bug.id]) grouped[bug.id] = { bug: bug, cases: [] };
-        grouped[bug.id].cases.push(testCase);
-      });
+  D.bugTable = function (racks, inventory) {
+    racks = racks || D.S.racks;
+    inventory = inventory || D.bugInventory(racks);
+    var selectedRacks = {};
+    racks.forEach(function (rack) { selectedRacks[String(rack.id || rack.label)] = 1; });
+    var entries = inventory.filter(function (entry) {
+      return entry.racks.some(function (rackEntry) { return selectedRacks[String(rackEntry.rack.id || rackEntry.rack.label)]; });
     });
     var t = D.el('table'), thead = D.el('thead'), hr = D.el('tr');
-    ['Bug', 'State', 'Severity', 'Priority', 'Title', 'Linked Test Cases'].forEach(function (h) { hr.appendChild(D.el('th', null, h)); });
+    ['Bug', 'State', 'Severity', 'Priority', 'Title', 'Racks', 'Linked Test Cases in this view'].forEach(function (h) { hr.appendChild(D.el('th', null, h)); });
     thead.appendChild(hr); t.appendChild(thead);
-    var tb = D.el('tbody'), ids = Object.keys(grouped).sort(function (a, b) { return +a - +b; });
-    if (!ids.length) {
+    var tb = D.el('tbody');
+    if (!entries.length) {
       var er = D.el('tr'), td = D.el('td', 'empty', 'No linked Bugs found yet. This tracking area is reserved and will populate automatically from Test Case work item Links.');
-      td.colSpan = 6; er.appendChild(td); tb.appendChild(er);
+      td.colSpan = 7; er.appendChild(td); tb.appendChild(er);
     }
-    ids.forEach(function (id) {
-      var entry = grouped[id], tr = D.el('tr');
-      var bugCell = D.el('td'); bugCell.appendChild(D.bugLink(entry.bug)); tr.appendChild(bugCell);
+    entries.forEach(function (entry) {
+      var tr = D.el('tr', entry.racks.length === 1 ? 'bug-rack-only' : '');
+      tr.setAttribute('data-bug-id', entry.bug.id); tr.setAttribute('data-rack-count', entry.racks.length);
+      var bugCell = D.el('td'); bugCell.appendChild(D.bugLink(D.inventoryBugView(entry))); tr.appendChild(bugCell);
       var stateCell = D.el('td'); stateCell.appendChild(D.chip(entry.bug.state)); tr.appendChild(stateCell);
       tr.appendChild(D.el('td', null, D.severityInfo(entry.bug.severity).label));
       var priority = D.priorityLevel(entry.bug.priority);
       tr.appendChild(D.el('td', null, priority ? 'P' + priority : 'Not set'));
       tr.appendChild(D.el('td', null, entry.bug.title));
-      var casesCell = D.el('td');
-      entry.cases.forEach(function (testCase, index) {
-        if (index) casesCell.appendChild(document.createTextNode(', '));
-        var link = D.el('a', 'caseid', '#' + testCase.id); link.href = D.wiUrl(testCase.id); link.target = '_blank'; link.rel = 'noopener';
-        casesCell.appendChild(link);
+      var racksCell = D.el('td', 'bug-rack-cell');
+      entry.racks.forEach(function (rackEntry) {
+        var rackChip = D.el('span', 'bug-rack-chip' + (entry.racks.length === 1 ? ' rack-only' : ''), rackEntry.rack.label);
+        rackChip.title = rackEntry.cases.length + ' linked Test Case' + (rackEntry.cases.length === 1 ? '' : 's'); racksCell.appendChild(rackChip);
       });
+      tr.appendChild(racksCell);
+      var cases = [];
+      entry.racks.forEach(function (rackEntry) {
+        if (selectedRacks[String(rackEntry.rack.id || rackEntry.rack.label)]) cases = cases.concat(rackEntry.cases);
+      });
+      var casesCell = D.el('td'); casesCell.appendChild(D.caseLinks(cases));
       tr.appendChild(casesCell); tb.appendChild(tr);
     });
     t.appendChild(tb); return t;
@@ -1022,9 +1090,10 @@
     tb.appendChild(tr2); t.appendChild(tb); return t;
   };
   D.bugLink = function (bug) {
-    var link = D.el('a', 'bug-link', 'BUG #' + bug.id);
+    var link = D.el('a', 'bug-link' + (bug.rackOnly ? ' rack-only' : ''), 'BUG #' + bug.id);
     link.href = D.wiUrl(bug.id); link.target = '_blank'; link.rel = 'noopener';
-    link.title = (bug.state || 'Unknown state') + ' · ' + (bug.title || ('Bug #' + bug.id));
+    link.title = (bug.state || 'Unknown state') + ' · ' + (bug.title || ('Bug #' + bug.id)) + (bug.rackLabels && bug.rackLabels.length ? ' · ' + bug.rackLabels.join(', ') + (bug.rackOnly ? ' only' : '') : '');
+    if (bug.rackOnly) link.setAttribute('aria-label', 'BUG #' + bug.id + ' — linked in ' + bug.rackLabels[0] + ' only');
     return link;
   };
   D.caseRow = function (n) {
@@ -1454,6 +1523,7 @@
         var bMetrics = D.box('Sample Size, Number_of_cycles & Test Duration — largest / longest first');
         refs.metricBox = D.el('div'); bMetrics.appendChild(refs.metricBox); panel.appendChild(bMetrics);
         var b4 = D.box('Linked Bug tracking — from Test Case Links');
+        refs.bugRackBox = D.el('div'); b4.appendChild(refs.bugRackBox);
         refs.bugStatsBox = D.el('div'); b4.appendChild(refs.bugStatsBox);
         refs.bugBox = D.el('div', 'bug-detail-scroll'); b4.appendChild(refs.bugBox); panel.appendChild(b4);
       } else if (def.kind === 'rack') {
@@ -1476,6 +1546,9 @@
         refs.priorityBox = D.el('div'); rbPriority.appendChild(refs.priorityBox); panel.appendChild(rbPriority);
         var rbMetrics = D.box('Sample Size, Number_of_cycles & Test Duration — largest / longest first');
         refs.metricBox = D.el('div'); rbMetrics.appendChild(refs.metricBox); panel.appendChild(rbMetrics);
+        var rbBugs = D.box(def.rack.label + ' linked Bug list — from this Rack\'s Test Case Links');
+        refs.bugSummaryBox = D.el('div', 'rack-bug-reconcile'); rbBugs.appendChild(refs.bugSummaryBox);
+        refs.bugBox = D.el('div', 'bug-detail-scroll'); rbBugs.appendChild(refs.bugBox); panel.appendChild(rbBugs);
         var tb = D.box('Feature → System Requirement → Test Case (click to expand)');
         var bar = D.el('div', 'tree-toolbar');
         var bExp = D.el('button', null, 'Expand all'), bCol = D.el('button', null, 'Collapse all');
@@ -1514,11 +1587,12 @@
       allFeat = allFeat.concat(D.collect(r, 'Feature'));
       allReq = allReq.concat(D.collect(r, 'System Requirement'));
     });
+    var bugInventory = D.bugInventory(D.S.racks);
     D.S.panels.forEach(function (p) {
       if (p.kind === 'ov') {
         var f = allCases.filter(D.inRange);
         var bugCases = allCases.filter(function (c) { return (c.bugs || []).length > 0; });
-        var linkedBugs = D.uniqueBugs(allCases);
+        var linkedBugs = bugInventory.map(function (entry) { return entry.bug; });
         var outcomes = D.outcomeSummary(f);
         p.cFeat._val.textContent = allFeat.length;
         p.cReq._val.textContent = allReq.length;
@@ -1531,8 +1605,9 @@
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.rackTable());
         p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(f));
         p.metricBox.innerHTML = ''; p.metricBox.appendChild(D.metricInventoryPanel(f));
-        p.bugStatsBox.innerHTML = ''; p.bugStatsBox.appendChild(D.bugStats(allCases));
-        p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable(allCases));
+        p.bugRackBox.innerHTML = ''; p.bugRackBox.appendChild(D.bugRackStats(bugInventory, D.S.racks));
+        p.bugStatsBox.innerHTML = ''; p.bugStatsBox.appendChild(D.bugStats(allCases, bugInventory));
+        p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable(D.S.racks, bugInventory));
         var counts = D.countStates(f);
         D.drawInto(p.chartHost, counts);
         p.legendHost.innerHTML = ''; p.legendHost.appendChild(D.legend(counts));
@@ -1542,20 +1617,25 @@
         p.cmpHost.appendChild(D.stacked(D.S.racks.map(function (r) { return r.label; }), perRack, D.orderStates(Object.keys(stateSet))));
       } else if (p.kind === 'rack') {
         var cs = D.collect(p.rack, 'Test Case'), fc = cs.filter(D.inRange);
+        var rackBugEntries = D.bugEntriesForRack(bugInventory, p.rack);
+        var rackOnlyBugs = rackBugEntries.filter(function (entry) { return entry.racks.length === 1; }).length;
         p.cFeat._val.textContent = D.collect(p.rack, 'Feature').length;
         p.cReq._val.textContent = D.collect(p.rack, 'System Requirement').length;
         p.cCase._val.textContent = cs.length;
         p.cFiltered._val.textContent = fc.length;
-        p.cBugs._val.textContent = D.uniqueBugs(cs).length;
+        p.cBugs._val.textContent = rackBugEntries.length;
         var c2 = D.countStates(fc);
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.statsTable(c2));
         p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(fc));
         p.metricBox.innerHTML = ''; p.metricBox.appendChild(D.metricInventoryPanel(fc));
+        p.bugSummaryBox.textContent = 'Reconciled with Overview ' + p.rack.label + ': ' + rackBugEntries.length + ' unique Bugs · ' + rackOnlyBugs + ' Rack-only · ' + (rackBugEntries.length - rackOnlyBugs) + ' shared across Racks.';
+        p.bugSummaryBox.setAttribute('data-rack-bug-count', rackBugEntries.length);
+        p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable([p.rack], bugInventory));
         D.drawInto(p.chartHost, c2);
         p.legendHost.innerHTML = ''; p.legendHost.appendChild(D.legend(c2));
       }
     });
-    var tf = allCases.filter(D.inRange).length, totalLinkedBugs = D.uniqueBugs(allCases).length;
+    var tf = allCases.filter(D.inRange).length, totalLinkedBugs = bugInventory.length;
     var bugNote = D.S.bugLinkWarning ? ' Bug link lookup was skipped, but the core dashboard data is current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
