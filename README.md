@@ -4,7 +4,7 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.10.0）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.10.1）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
@@ -27,6 +27,16 @@ https://dev.azure.com/{organization}/{project}/_queries/query/{query-id}/
 ```
 
 每個 Query 的 snapshot 與最多 14 份每日歷史會使用各自的儲存 key，切換專案時不會拿另一個 Query 的 Case 做 Added／Removed／State Changed 比較。Live query 仍受瀏覽器同源規則限制；目前從 `azurecsi.visualstudio.com` 啟動時，最適合加入同一個 `azurecsi` organization 下的其他 project Query。
+
+## Rack-aware Bug 追蹤
+
+v1.10.1 將 Overview 與各 Rack 的 Bug 顯示統一改由同一份 `Bug × Rack` inventory 計算：
+
+- Overview 的 **Bug distribution by Rack** 會列出每個 Rack 的 unique Bug 數量，並可展開查看該 Rack 的 Bug IDs。
+- Overview Bug 明細新增 **Racks** 欄位；同一個 Bug 若連結到多個 Rack 的 Test Cases，會在同一列列出所有 Rack。
+- 只出現在單一 Rack 的 Bug 會以金色連結、Rack 標籤與列底色高亮；跨 Rack 重複的 Bug 維持一般顏色。
+- Rack 1～5 分頁各自新增 Bug list，只列出與該 Rack Test Cases 相連的 Bug；數字卡、清單與 Overview 對應 Rack 的統計使用相同來源。
+- Overview 的 `unique Bugs` 會依 Bug ID 去重；每 Rack 的數量會包含該 Rack 上的 shared Bugs，因此 Rack 數量相加可能大於 Overview unique total，這是正確的跨 Rack 關係呈現。
 
 ## Test Features 分頁
 

@@ -321,6 +321,7 @@ document-idle → hash 含 dvdash？ → D.boot()
 | v1.9.1 | 移除 Analytics OData 趨勢、跨網域權限與 PAT／登入流程；保留 Test Results、週報及快照比較，Extension scopes 縮減為 `vso.work`、`vso.test` |
 | v1.9.2 | 週報與 Rack 1 Test Features 匯出改為真正的 `.xlsx`；所有 worksheet 取消凍結窗格，保留 AutoFilter、欄寬與 hyperlinks |
 | v1.10.0 | 在 v1.9.2 基礎上新增多專案 Query 選單、內建 EchoFalls C4142 Query、瀏覽器本機 Query 管理、動態標題／XLSX 匯出檔名，以及 Query-scoped snapshot／history |
+| v1.10.1 | 新增共用 Bug × Rack inventory；Overview 顯示每 Rack Bug 統計與 Rack 欄位、單 Rack Bug 高亮，Rack 分頁新增與 Overview 對帳的 Bug list |
 
 ---
 
@@ -847,3 +848,31 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 與 `main` v1.9.2 合併後保留真正的 `.xlsx` 匯出，動態檔名改為目前 Query 名稱；Analytics OData、跨網域權限與原生帳密彈窗流程不會被帶回。
 - Extension package、TypeScript check 與 esbuild 通過；`release/C4143-DVScale-Dashboard-Extension.vsix` 更新為 Extension v1.1.0、50,849 bytes，內含 userscript v1.10.0 與兩個內建 Query。
 - Azure DevOps 實際 Query 頁面只做可見內容讀取；此次實作與驗證沒有儲存 Query、沒有編輯 Work Item，也沒有安裝或修改 Azure DevOps organization。
+
+---
+
+## 27. 2026-09-07 Rack-aware Bug 對帳與分頁清單（v1.10.1）
+
+### 27.1 共用資料來源
+
+- 新增 `D.bugInventory()`，從目前 Query 的 Rack → Test Case → linked Bug 建立唯一的 `Bug × Rack × Case` 關係；Bug ID、Case ID 及 Rack 都會去重。
+- `D.bugEntriesForRack()`、Overview Rack 統計、Overview Bug table、Rack `LINKED BUGS` 卡片及 Rack Bug table 全部使用同一份 inventory，避免各畫面分別計算造成數字不同。
+- Overview unique total 以 Bug ID 去重；每 Rack total 會包含該 Rack 關聯的 shared Bug，因此 Rack totals 相加可能大於 Overview unique total。
+
+### 27.2 畫面行為
+
+- Overview 新增 **Bug distribution by Rack** 橫向長條，每個 Rack 顯示 unique、Rack-only、shared 數量並提供可展開 Bug ID list。
+- Overview Bug 明細新增 **Racks** 欄；同一 Bug 跨 Rack 時在同一列顯示所有 Rack chips。
+- 只出現在一個 Rack 的 Bug 使用金色 link、Rack chip、表格列底色及左框高亮；ARIA label 與 tooltip 也註明所屬 Rack。
+- Rack 1～5 各自新增 linked Bug table，只列出該 Rack Test Cases 的 Bug 與 Case links，同時保留該 Bug 在全體 Rack 的分布資訊。
+- 390px Query selector 補上 flex 邊界限制；寬表格維持區塊內水平捲動，文件本身不再水平溢出。
+
+### 27.3 驗證
+
+- Browser fixture 同時建立 35 個 Rack-only Bugs、1 個跨 5 Rack Bug、1 個跨 Rack 1／2 Bug；Overview 正確得到 37 unique、35 Rack-only、2 shared。
+- Overview 每 Rack 統計為 `[9, 9, 8, 8, 8]`；Rack 1～5 的 `LINKED BUGS` 卡片、對帳文字、Bug table unique row 數逐項與 Overview 對應列一致。
+- 每個 Rack table 都有 7 個 Rack-only 高亮列；跨 5 Rack 與跨 2 Rack 的測試 Bug 分別顯示 5 與 2 個 Rack chips，未誤標為 Rack-only。
+- 正常 fixture：5 Racks／290 Cases；替代 fixture：5 Racks／285 Cases、Test Features `57 / 57`，未恢復固定 Expected 或 Coverage warning。
+- 1440px 與 390px Playwright QA 通過；390px `document.scrollWidth === clientWidth === 390`，Browser Console 與 page errors 均為 0。
+- `node --check`、`git diff --check`、TypeScript check、esbuild 與 VSIX package 通過。Extension v1.1.1 為 52,721 bytes，內含 userscript v1.10.1、Hub、Widget、manifest 與 icon。
+- 測試使用本機 fixture，未對 Azure DevOps Query、Work Item 或 organization 執行任何寫入。
