@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.10.1
-// @description  Adds Rack-aware Bug reconciliation, a multi-project Query selector, real Test Results, XLSX exports, and Extension support.
+// @version      1.10.2
+// @description  Uses Test Case History Added Related links for Rack-aware Bug reconciliation, with multi-Query, Test Results, and XLSX support.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -49,7 +49,7 @@
     }).listen(8080, () => console.log("proxy on http://localhost:8080"));
     Note: create the PAT yourself in Azure DevOps (Scope: Work Items -> Read). Never store it inside this file.
 
- This script only reads (GET/POST wiql, workitemsbatch) and displays the result. It never modifies any work item.
+ This script only reads (GET/POST WIQL, workitemsbatch, and work item updates/history) and displays the result. It never modifies any work item.
 ------------------------------------------------------------------ */
 (function () {
   "use strict";
@@ -239,6 +239,49 @@
     if (!referenceName || !fields || fields[referenceName] == null || fields[referenceName] === '') return null;
     return fields[referenceName];
   };
+  D.relationWorkItemId = function (relation) {
+    var match = /\/workItems\/(\d+)(?:\?|$)/i.exec(relation && relation.url || '');
+    return match ? +match[1] : null;
+  };
+  D.relatedLinksFromHistory = async function (base, relatedIdsOf) {
+    var caseIds = Object.keys(relatedIdsOf).filter(function (caseId) { return Object.keys(relatedIdsOf[caseId] || {}).length; });
+    var found = {}, failures = [], cursor = 0, workerCount = Math.min(6, caseIds.length);
+    async function readCase(caseId) {
+      var candidates = relatedIdsOf[caseId], skip = 0, pageSize = 200, updates = [];
+      while (true) {
+        var response = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workItems/' + caseId + '/updates?$top=' + pageSize + '&$skip=' + skip + '&api-version=7.1');
+        var page = response.value || [];
+        updates = updates.concat(page);
+        if (page.length < pageSize) break;
+        skip += page.length;
+      }
+      updates.sort(function (a, b) { return (+a.rev || 0) - (+b.rev || 0); });
+      updates.forEach(function (update) {
+        var added = update.relations && update.relations.added || [];
+        added.forEach(function (relation) {
+          if (relation.rel !== 'System.LinkTypes.Related') return;
+          var linkedId = D.relationWorkItemId(relation);
+          if (!linkedId || !candidates[linkedId]) return;
+          (found[caseId] = found[caseId] || {})[linkedId] = {
+            addedAt: update.revisedDate || null,
+            addedBy: update.revisedBy && (update.revisedBy.displayName || update.revisedBy.uniqueName) || '',
+            revision: update.rev || null
+          };
+        });
+      });
+    }
+    async function worker() {
+      while (cursor < caseIds.length) {
+        var caseId = caseIds[cursor++];
+        try { await readCase(caseId); }
+        catch (error) { failures.push({ id: +caseId, error: String(error && error.message || error) }); }
+      }
+    }
+    var workers = [];
+    for (var i = 0; i < workerCount; i++) workers.push(worker());
+    await Promise.all(workers);
+    return { linksOf: found, failures: failures, inspected: caseIds.length };
+  };
   D.runQuery = async function () {
     D.S.bugLinkWarning = '';
     var base = D.baseFor();
@@ -271,7 +314,7 @@
     }
     var byId = {};
     items.forEach(function (it) { byId[it.id] = it.fields; });
-    var linkedIdsOf = {}, linkedFetchIds = [], linkedSeen = {};
+    var linkedIdsOf = {}, linkedMetaOf = {}, linkedFetchIds = [], linkedSeen = {};
     try {
       var testCaseIds = items.filter(function (it) {
         return it.fields && it.fields['System.WorkItemType'] === 'Test Case';
@@ -281,11 +324,11 @@
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: testCaseIds.slice(j, j + 200), '$expand': 'relations', errorPolicy: 'omit' }) });
         (relationBatch.value || []).forEach(function (it) {
           (it.relations || []).forEach(function (rel) {
-            var m = /\/workItems\/(\d+)(?:\?|$)/i.exec(rel.url || '');
-            if (!m) return;
-            var linkedId = +m[1];
+            if (rel.rel !== 'System.LinkTypes.Related') return;
+            var linkedId = D.relationWorkItemId(rel);
+            if (!linkedId) return;
             if (linkedId === it.id) return;
-            (linkedIdsOf[it.id] = linkedIdsOf[it.id] || []).push(linkedId);
+            (linkedIdsOf[it.id] = linkedIdsOf[it.id] || {})[linkedId] = 1;
             if (!byId[linkedId] && !linkedSeen[linkedId]) { linkedSeen[linkedId] = 1; linkedFetchIds.push(linkedId); }
           });
         });
@@ -295,8 +338,18 @@
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: linkedFetchIds.slice(k, k + 200), fields: fields, errorPolicy: 'omit' }) });
         (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; });
       }
+      var bugRelatedIdsOf = {};
+      Object.keys(linkedIdsOf).forEach(function (caseId) {
+        Object.keys(linkedIdsOf[caseId]).forEach(function (linkedId) {
+          if (byId[linkedId] && byId[linkedId]['System.WorkItemType'] === 'Bug') (bugRelatedIdsOf[caseId] = bugRelatedIdsOf[caseId] || {})[linkedId] = 1;
+        });
+      });
+      var historyResult = await D.relatedLinksFromHistory(base, bugRelatedIdsOf);
+      linkedMetaOf = historyResult.linksOf;
+      if (historyResult.failures.length) D.S.bugLinkWarning = 'Related-link History lookup failed for ' + historyResult.failures.length + ' of ' + historyResult.inspected + ' Test Cases.';
     } catch (bugLinkError) {
       linkedIdsOf = {};
+      linkedMetaOf = {};
       D.S.bugLinkWarning = String((bugLinkError && bugLinkError.message) || bugLinkError);
     }
     var childrenOf = {}, parentOf = {};
@@ -323,14 +376,15 @@
           igsOwner: D.fieldValue(f, D.S.metricFields && D.S.metricFields.igsOwner),
           comments: D.fieldValue(f, D.S.metricFields && D.S.metricFields.comments)
         },
-        bugs: (linkedIdsOf[id] || []).filter(function (linkedId) {
+        bugs: Object.keys(linkedMetaOf[id] || {}).map(function (linkedId) { return +linkedId; }).filter(function (linkedId) {
           return byId[linkedId] && byId[linkedId]['System.WorkItemType'] === 'Bug';
         }).filter(function (linkedId, index, list) { return list.indexOf(linkedId) === index; }).map(function (linkedId) {
-          var bug = byId[linkedId] || {};
+          var bug = byId[linkedId] || {}, linkMeta = linkedMetaOf[id][linkedId] || {};
           return {
             id: linkedId, title: bug['System.Title'] || ('Bug #' + linkedId), state: bug['System.State'] || '?',
             severity: D.fieldValue(bug, D.S.metricFields && D.S.metricFields.severity),
-            priority: D.fieldValue(bug, D.S.metricFields && D.S.metricFields.priority)
+            priority: D.fieldValue(bug, D.S.metricFields && D.S.metricFields.priority),
+            linkAddedAt: linkMeta.addedAt || null, linkAddedBy: linkMeta.addedBy || '', linkAddedRevision: linkMeta.revision || null
           };
         }),
         children: (childrenOf[id] || []).map(build) };
@@ -489,7 +543,7 @@
         (testCase.bugs || []).forEach(function (bug) {
           var bugKey = String(bug.id || ''); if (!bugKey) return;
           if (!grouped[bugKey]) {
-            grouped[bugKey] = { bug: bug, cases: [], caseIds: {}, racks: [], racksByKey: {} };
+            grouped[bugKey] = { bug: bug, cases: [], caseIds: {}, racks: [], racksByKey: {}, links: [], linkKeys: {} };
             entries.push(grouped[bugKey]);
           }
           var entry = grouped[bugKey];
@@ -500,6 +554,13 @@
           }
           var rackEntry = entry.racksByKey[rackKey];
           if (!rackEntry.caseIds[testCase.id]) { rackEntry.caseIds[testCase.id] = 1; rackEntry.cases.push(testCase); }
+          var linkKey = rackKey + '|' + testCase.id;
+          if (!entry.linkKeys[linkKey]) {
+            entry.linkKeys[linkKey] = 1;
+            var link = { rack: rack, testCase: testCase, bug: bug, addedAt: bug.linkAddedAt || null, addedBy: bug.linkAddedBy || '', revision: bug.linkAddedRevision || null };
+            entry.links.push(link);
+            (rackEntry.links = rackEntry.links || []).push(link);
+          }
         });
       });
     });
@@ -513,7 +574,9 @@
   D.inventoryBugView = function (entry) {
     return Object.assign({}, entry.bug, {
       rackOnly: entry.racks.length === 1,
-      rackLabels: entry.racks.map(function (rackEntry) { return rackEntry.rack.label; })
+      rackLabels: entry.racks.map(function (rackEntry) { return rackEntry.rack.label; }),
+      linkAddedAt: null,
+      linkAddedBy: ''
     });
   };
   D.rate = function (count, total) {
@@ -733,6 +796,23 @@
       };
     });
     wrap.appendChild(D.horizontalBarChart('Bug distribution by Rack — expandable Bug IDs', rows, 'No linked Bugs found yet'));
+    return wrap;
+  };
+  D.bugSourceLinks = function (entry, selectedRacks) {
+    var wrap = D.el('div', 'bug-source-list');
+    (entry.links || []).filter(function (link) {
+      return selectedRacks[String(link.rack.id || link.rack.label)];
+    }).forEach(function (link) {
+      var row = D.el('div', 'bug-source-row');
+      row.appendChild(D.el('span', 'bug-rack-chip' + (entry.racks.length === 1 ? ' rack-only' : ''), link.rack.label));
+      var caseLink = D.el('a', 'caseid', 'Case #' + link.testCase.id);
+      caseLink.href = D.wiUrl(link.testCase.id); caseLink.target = '_blank'; caseLink.rel = 'noopener'; caseLink.title = link.testCase.title;
+      row.appendChild(caseLink);
+      var metadata = link.addedAt ? 'Added ' + D.fmt(link.addedAt) : 'Added Related link';
+      if (link.addedBy) metadata += ' by ' + link.addedBy;
+      row.appendChild(D.el('span', 'bug-source-meta', metadata));
+      wrap.appendChild(row);
+    });
     return wrap;
   };
   D.bugStats = function (cases, inventory) {
@@ -1000,6 +1080,7 @@
   D.CSS += "\n.tab{font-size:18px;padding:10px 29px;min-height:42px}\n.metric-badge{display:inline-flex;align-items:center;border:1px solid;border-radius:5px;padding:2px 6px;font-size:10.5px;font-weight:700;white-space:nowrap}\n.metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:10px 0 14px}\n.metric-section{min-width:0;padding:10px;border:1px solid #1c2942;border-radius:8px;background:#0f1a2e;overflow-x:auto}\n.metric-section h4{margin:0 0 8px;color:#cfe3ff;font-size:12px}\n.metric-total{font-size:12px;color:#bcd9ff;margin:2px 0 8px;font-weight:700}\n.case-links{display:inline;line-height:1.8}\n@media(max-width:980px){.metric-grid{grid-template-columns:1fr}}\n@media(max-width:720px){.tab{font-size:16px;padding:9px 18px;min-height:40px}}";
   D.CSS += "\n.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}\n.metric-stack{display:grid;gap:12px;align-content:start;min-width:0}\n.metric-section{overflow:hidden}\n.hbar-list{display:grid;gap:10px}\n.hbar-row{padding:9px 10px;border:1px solid #1c2942;border-radius:8px;background:#111d33}\n.hbar-row.total{border-color:#2d527d;background:#12223b}\n.hbar-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px}\n.hbar-label{min-width:0;color:#dbeafe;font-size:12px;font-weight:700;overflow-wrap:anywhere}\n.hbar-value{flex:none;color:#a9bdd8;font-size:11px;font-variant-numeric:tabular-nums;text-align:right}\n.hbar-track{height:12px;border-radius:999px;background:#1c2942;overflow:hidden}\n.hbar-fill{height:100%;border-radius:inherit;transition:width .25s ease}\n.hbar-details{margin-top:5px;color:#8fa3c0;font-size:11px}\n.hbar-details>summary{display:flex;align-items:center;min-height:32px;width:max-content;max-width:100%;cursor:pointer;color:#7dd3fc;font-weight:600;list-style:none}\n.hbar-details>summary::-webkit-details-marker{display:none}\n.hbar-details>summary:before{content:'\\25B8';margin-right:5px;color:#5b7ba6;transition:transform .15s}\n.hbar-details[open]>summary:before{transform:rotate(90deg)}\n.hbar-details>summary:hover{color:#bae6fd}\n.hbar-details>summary:focus-visible{outline:2px solid #38bdf8;outline-offset:2px;border-radius:4px}\n.hbar-links{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 2px 16px}\n@media(max-width:980px){.metric-grid{grid-template-columns:1fr}}\n@media(max-width:720px){.hbar-head{align-items:flex-start;flex-direction:column;gap:3px}.hbar-value{text-align:left}.hbar-row{padding:9px}.hbar-details>summary{min-height:40px}.hbar-links{padding-left:8px}}";
   D.CSS += "\n.box{min-width:0;max-width:100%;overflow-x:auto}\n.grid{min-width:0;max-width:100%}\n.bug-detail-scroll{max-width:100%;overflow-x:auto;margin-top:8px}\n.bug-detail-scroll>table{min-width:880px}\n.bug-rack-stats{display:grid;gap:10px;margin-bottom:16px}\n.bug-highlight-note{color:#fde68a}\n.bug-link.rack-only{border-color:#facc15;background:rgba(250,204,21,.18);color:#fef08a;box-shadow:0 0 0 1px rgba(250,204,21,.14)}\n.bug-link.rack-only:hover{background:rgba(250,204,21,.3);color:#fff}\ntr.bug-rack-only>td{background:rgba(250,204,21,.075)}\ntr.bug-rack-only>td:first-child{box-shadow:inset 3px 0 0 #facc15}\n.bug-rack-cell{display:flex;flex-wrap:wrap;gap:5px;min-width:130px}\n.bug-rack-chip{display:inline-flex;align-items:center;border:1px solid #365477;border-radius:999px;padding:2px 7px;background:#152944;color:#bfdbfe;font-size:11px;font-weight:700;white-space:nowrap}\n.bug-rack-chip.rack-only{border-color:#facc15;background:rgba(250,204,21,.16);color:#fef08a}\n.rack-bug-reconcile{margin:0 0 8px;color:#bfdbfe;font-size:12px}";
+  D.CSS += "\n.bug-source-list{display:grid;gap:5px;min-width:310px}.bug-source-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:4px 0;border-bottom:1px solid rgba(53,84,119,.42)}.bug-source-row:last-child{border-bottom:0}.bug-source-meta{color:#8fa3c0;font-size:10.5px;white-space:nowrap}";
   D.CSS += "\n.suite-intro{margin:0 0 12px;color:#9fb3d0;font-size:12px}\n.suite-toolbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;width:min(980px,100%);margin-bottom:14px}\n.suite-toolbar>*{width:100%;min-width:0}\n.feature-groups{display:grid;gap:8px}\ndetails.feature-group{min-width:0;border:1px solid #253858;border-radius:9px;background:#0f1a2e;overflow:hidden}\ndetails.feature-group[open]{border-color:#35618f;background:#101d33}\n.feature-summary{display:flex;align-items:center;gap:8px;padding:11px 13px;cursor:pointer;list-style:none}\n.feature-summary::-webkit-details-marker{display:none}\n.feature-summary:before{content:'\\25B8';color:#7dd3fc;transition:transform .15s}\ndetails.feature-group[open]>.feature-summary:before{transform:rotate(90deg)}\n.feature-summary:hover{background:#152744}\n.feature-group-name{color:#e0f2fe;font-size:15px;font-weight:700}\n.suite-pill{display:inline-flex;padding:2px 8px;border-radius:999px;background:#193657;color:#bae6fd;border:1px solid #2d527d;font-size:11px;font-weight:700}\n.feature-group-body{padding:0 12px 12px 28px}\n.feature-table-scroll{max-width:100%;overflow:auto;border:1px solid #1c2942;border-radius:7px}\ntable.feature-table{min-width:1480px;background:#0c1729}\n.feature-table th{position:sticky;top:0;background:#132039;z-index:1}\n.feature-table td{vertical-align:top;line-height:1.4}\n.feature-table .feature-id{width:86px;font-family:Consolas,monospace}\n.feature-table .feature-title{min-width:420px;color:#d7e3f4}\n.feature-table .feature-owner{min-width:150px}\n.feature-table .feature-comments{min-width:240px;max-width:420px;white-space:normal;overflow-wrap:anywhere}\n.feature-case-row{border-left:3px solid transparent}\n.feature-case-row:hover{background:#152341}\n.feature-bugs{min-width:160px}\n.feature-bugs .bug-link{margin:1px 4px 1px 0}\n@media(max-width:720px){.suite-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.suite-toolbar>input{grid-column:1/-1}.feature-group-body{padding-left:10px}.feature-summary{padding:12px 10px}}";
   D.CSS += "\n.dashboard-main{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:start;min-width:0}\n#panels{min-width:0}\n.tabs{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:center;gap:4px;width:64px;min-width:64px;padding:10px 6px 60px 8px}\n.tab{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:50px;min-width:50px;max-width:50px;min-height:72px;height:auto;padding:8px 5px;border:1px solid #1e2b45;border-radius:6px;background:#111d33;color:#9fb3d0;writing-mode:vertical-rl;text-orientation:mixed;white-space:nowrap;font-size:11px;line-height:1.1}\n.tab.active{background:#16243d;color:#fff;font-weight:600;box-shadow:inset 3px 0 0 #38bdf8}\n.panel{min-width:0;padding:16px 20px 60px 14px}\n@media(max-width:720px){.dashboard-main{grid-template-columns:54px minmax(0,1fr)}.tabs{width:54px;min-width:54px;padding:8px 4px 40px}.tab{width:44px;min-width:44px;max-width:44px;min-height:66px;padding:7px 4px;font-size:10px}.panel{padding:12px 10px 50px 8px}}";
   D.CSS += "\n:root{--dvdash-controls-height:52px}\n.tabs{position:sticky;top:calc(var(--dvdash-controls-height) + 8px);align-self:start;z-index:12;max-height:calc(100vh - var(--dvdash-controls-height) - 16px);overflow-y:auto;scrollbar-width:thin}\n.panel-sticky,.suite-sticky{position:sticky;top:var(--dvdash-controls-height);z-index:11;background:#0b1220;padding-top:8px;padding-bottom:12px;box-shadow:0 12px 18px rgba(3,8,18,.42)}\n.panel-sticky>.cards,.suite-sticky>.cards{margin-bottom:0}\n@media(max-width:980px), (max-height:700px){.panel-sticky,.suite-sticky{position:static;box-shadow:none;padding-top:0}}\n@media(max-width:720px){.tabs{top:calc(var(--dvdash-controls-height) + 6px);max-height:calc(100vh - var(--dvdash-controls-height) - 12px)}}";
@@ -1037,11 +1118,11 @@
       return entry.racks.some(function (rackEntry) { return selectedRacks[String(rackEntry.rack.id || rackEntry.rack.label)]; });
     });
     var t = D.el('table'), thead = D.el('thead'), hr = D.el('tr');
-    ['Bug', 'State', 'Severity', 'Priority', 'Title', 'Racks', 'Linked Test Cases in this view'].forEach(function (h) { hr.appendChild(D.el('th', null, h)); });
+    ['Bug', 'State', 'Severity', 'Priority', 'Title', 'Racks', 'Added Related sources (Rack → Case)'].forEach(function (h) { hr.appendChild(D.el('th', null, h)); });
     thead.appendChild(hr); t.appendChild(thead);
     var tb = D.el('tbody');
     if (!entries.length) {
-      var er = D.el('tr'), td = D.el('td', 'empty', 'No linked Bugs found yet. This tracking area is reserved and will populate automatically from Test Case work item Links.');
+      var er = D.el('tr'), td = D.el('td', 'empty', 'No active Bug was found from an Added Related link in Test Case History.');
       td.colSpan = 7; er.appendChild(td); tb.appendChild(er);
     }
     entries.forEach(function (entry) {
@@ -1059,11 +1140,7 @@
         rackChip.title = rackEntry.cases.length + ' linked Test Case' + (rackEntry.cases.length === 1 ? '' : 's'); racksCell.appendChild(rackChip);
       });
       tr.appendChild(racksCell);
-      var cases = [];
-      entry.racks.forEach(function (rackEntry) {
-        if (selectedRacks[String(rackEntry.rack.id || rackEntry.rack.label)]) cases = cases.concat(rackEntry.cases);
-      });
-      var casesCell = D.el('td'); casesCell.appendChild(D.caseLinks(cases));
+      var casesCell = D.el('td'); casesCell.appendChild(D.bugSourceLinks(entry, selectedRacks));
       tr.appendChild(casesCell); tb.appendChild(tr);
     });
     t.appendChild(tb); return t;
@@ -1092,7 +1169,7 @@
   D.bugLink = function (bug) {
     var link = D.el('a', 'bug-link' + (bug.rackOnly ? ' rack-only' : ''), 'BUG #' + bug.id);
     link.href = D.wiUrl(bug.id); link.target = '_blank'; link.rel = 'noopener';
-    link.title = (bug.state || 'Unknown state') + ' · ' + (bug.title || ('Bug #' + bug.id)) + (bug.rackLabels && bug.rackLabels.length ? ' · ' + bug.rackLabels.join(', ') + (bug.rackOnly ? ' only' : '') : '');
+    link.title = (bug.state || 'Unknown state') + ' · ' + (bug.title || ('Bug #' + bug.id)) + (bug.rackLabels && bug.rackLabels.length ? ' · ' + bug.rackLabels.join(', ') + (bug.rackOnly ? ' only' : '') : '') + (bug.linkAddedAt ? ' · Related link added ' + D.fmt(bug.linkAddedAt) + (bug.linkAddedBy ? ' by ' + bug.linkAddedBy : '') : '');
     if (bug.rackOnly) link.setAttribute('aria-label', 'BUG #' + bug.id + ' — linked in ' + bug.rackLabels[0] + ' only');
     return link;
   };
@@ -1506,7 +1583,7 @@
         refs.cPass.title = 'Closed Test Cases are counted as Pass. Rate denominator: Test Cases in the selected time range.';
         refs.cFail.title = 'Blocked Test Cases are counted as Fail. Rate denominator: Test Cases in the selected time range.';
         refs.cProgress.title = 'Test Cases whose current Azure DevOps State is In Progress.';
-        refs.cBugs.title = 'Unique linked Bugs / Test Cases affected by at least one linked Bug.';
+        refs.cBugs.title = 'Unique active Bugs / affected Test Cases, limited to links recorded as Added Related in Test Case History.';
         [refs.cRacks, refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
         var stickyTop = D.el('div', 'panel-sticky'); stickyTop.appendChild(cards); panel.appendChild(stickyTop);
         var grid = D.el('div', 'grid');
@@ -1522,7 +1599,7 @@
         refs.priorityBox = D.el('div'); bPriority.appendChild(refs.priorityBox); panel.appendChild(bPriority);
         var bMetrics = D.box('Sample Size, Number_of_cycles & Test Duration — largest / longest first');
         refs.metricBox = D.el('div'); bMetrics.appendChild(refs.metricBox); panel.appendChild(bMetrics);
-        var b4 = D.box('Linked Bug tracking — from Test Case Links');
+        var b4 = D.box('Bug tracking — Added Related links from Test Case History');
         refs.bugRackBox = D.el('div'); b4.appendChild(refs.bugRackBox);
         refs.bugStatsBox = D.el('div'); b4.appendChild(refs.bugStatsBox);
         refs.bugBox = D.el('div', 'bug-detail-scroll'); b4.appendChild(refs.bugBox); panel.appendChild(b4);
@@ -1532,7 +1609,7 @@
         refs.cCase = D.card('TEST CASES', '-', '#34d399');
         refs.cFiltered = D.card('UPDATED IN RANGE', 0, '#60a5fa');
         refs.cBugs = D.card('LINKED BUGS', 0, '#f87171');
-        refs.cBugs.title = 'Unique Bug work items linked from Test Cases in this Rack.';
+        refs.cBugs.title = 'Unique active Bugs recorded as Added Related links in Test Case History for this Rack.';
         [refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
         var rackSticky = D.el('div', 'panel-sticky'); rackSticky.appendChild(cards); panel.appendChild(rackSticky);
         var g = D.el('div', 'grid');
@@ -1546,7 +1623,7 @@
         refs.priorityBox = D.el('div'); rbPriority.appendChild(refs.priorityBox); panel.appendChild(rbPriority);
         var rbMetrics = D.box('Sample Size, Number_of_cycles & Test Duration — largest / longest first');
         refs.metricBox = D.el('div'); rbMetrics.appendChild(refs.metricBox); panel.appendChild(rbMetrics);
-        var rbBugs = D.box(def.rack.label + ' linked Bug list — from this Rack\'s Test Case Links');
+        var rbBugs = D.box(def.rack.label + ' Bug list — Added Related links from Test Case History');
         refs.bugSummaryBox = D.el('div', 'rack-bug-reconcile'); rbBugs.appendChild(refs.bugSummaryBox);
         refs.bugBox = D.el('div', 'bug-detail-scroll'); rbBugs.appendChild(refs.bugBox); panel.appendChild(rbBugs);
         var tb = D.box('Feature → System Requirement → Test Case (click to expand)');
@@ -1636,7 +1713,7 @@
       }
     });
     var tf = allCases.filter(D.inRange).length, totalLinkedBugs = bugInventory.length;
-    var bugNote = D.S.bugLinkWarning ? ' Bug link lookup was skipped, but the core dashboard data is current.' : '';
+    var bugNote = D.S.bugLinkWarning ? ' Bug History: ' + D.S.bugLinkWarning + ' The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
     var rl = (D.RANGES.filter(function (x) { return x[0] === D.S.range; })[0] || ['', ''])[1];
@@ -1646,7 +1723,7 @@
     if (!tf && allCases.length) {
       D.setStatus(src + ': loaded ' + allCases.length + ' test cases, but nothing was updated within "' + rl + '" — charts are empty. Latest change: ' + D.fmt(D.latest(allCases)) + '.' + bugNote + metricNote + testNote, 'warn');
     } else if (D.S.racks.length) {
-      D.setStatus(src + ': ' + D.S.racks.length + ' racks, ' + allCases.length + ' test cases, ' + totalLinkedBugs + ' linked Bugs; "' + rl + '" contains ' + tf + ' updated items.' + bugNote + metricNote + testNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote) ? 'warn' : 'info');
+      D.setStatus(src + ': ' + D.S.racks.length + ' racks, ' + allCases.length + ' test cases, ' + totalLinkedBugs + ' History-confirmed Related Bugs; "' + rl + '" contains ' + tf + ' updated items.' + bugNote + metricNote + testNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote) ? 'warn' : 'info');
     }
   };
   D.load = async function () {
