@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.10.2
-// @description  Uses Test Case History Added Related links for Rack-aware Bug reconciliation, with multi-Query, Test Results, and XLSX support.
+// @version      1.10.3
+// @description  Uses Bug-type Child links on each Test Case for Rack-aware Bug reconciliation, with multi-Query, Test Results, and XLSX support.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -49,7 +49,7 @@
     }).listen(8080, () => console.log("proxy on http://localhost:8080"));
     Note: create the PAT yourself in Azure DevOps (Scope: Work Items -> Read). Never store it inside this file.
 
- This script only reads (GET/POST WIQL, workitemsbatch, and work item updates/history) and displays the result. It never modifies any work item.
+ This script only reads (GET/POST WIQL, workitemsbatch, and Work Item Updates/History) and displays the result. It never modifies any work item.
 ------------------------------------------------------------------ */
 (function () {
   "use strict";
@@ -243,43 +243,37 @@
     var match = /\/workItems\/(\d+)(?:\?|$)/i.exec(relation && relation.url || '');
     return match ? +match[1] : null;
   };
-  D.relatedLinksFromHistory = async function (base, relatedIdsOf) {
-    var caseIds = Object.keys(relatedIdsOf).filter(function (caseId) { return Object.keys(relatedIdsOf[caseId] || {}).length; });
-    var found = {}, failures = [], cursor = 0, workerCount = Math.min(6, caseIds.length);
-    async function readCase(caseId) {
-      var candidates = relatedIdsOf[caseId], skip = 0, pageSize = 200, updates = [];
-      while (true) {
-        var response = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workItems/' + caseId + '/updates?$top=' + pageSize + '&$skip=' + skip + '&api-version=7.1');
-        var page = response.value || [];
-        updates = updates.concat(page);
-        if (page.length < pageSize) break;
-        skip += page.length;
-      }
-      updates.sort(function (a, b) { return (+a.rev || 0) - (+b.rev || 0); });
-      updates.forEach(function (update) {
-        var added = update.relations && update.relations.added || [];
-        added.forEach(function (relation) {
-          if (relation.rel !== 'System.LinkTypes.Related') return;
-          var linkedId = D.relationWorkItemId(relation);
-          if (!linkedId || !candidates[linkedId]) return;
-          (found[caseId] = found[caseId] || {})[linkedId] = {
-            addedAt: update.revisedDate || null,
-            addedBy: update.revisedBy && (update.revisedBy.displayName || update.revisedBy.uniqueName) || '',
-            revision: update.rev || null
-          };
+  D.childLinksFromHistory = async function (base, childIdsOf) {
+    var caseIds = Object.keys(childIdsOf).filter(function (caseId) { return Object.keys(childIdsOf[caseId] || {}).length; });
+    var found = {}, failures = [];
+    await D.mapLimit(caseIds, 6, async function (caseId) {
+      try {
+        var candidates = childIdsOf[caseId], skip = 0, pageSize = 200, updates = [];
+        while (true) {
+          var response = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workItems/' + caseId + '/updates?$top=' + pageSize + '&$skip=' + skip + '&api-version=7.1');
+          var page = response.value || [];
+          updates = updates.concat(page);
+          if (page.length < pageSize) break;
+          skip += page.length;
+        }
+        updates.sort(function (a, b) { return (+a.rev || 0) - (+b.rev || 0); });
+        updates.forEach(function (update) {
+          var added = update.relations && update.relations.added || [];
+          added.forEach(function (relation) {
+            if (relation.rel !== 'System.LinkTypes.Hierarchy-Forward') return;
+            var childId = D.relationWorkItemId(relation);
+            if (!childId || !candidates[childId]) return;
+            (found[caseId] = found[caseId] || {})[childId] = {
+              addedAt: update.revisedDate || null,
+              addedBy: update.revisedBy && (update.revisedBy.displayName || update.revisedBy.uniqueName) || '',
+              revision: update.rev || null
+            };
+          });
         });
-      });
-    }
-    async function worker() {
-      while (cursor < caseIds.length) {
-        var caseId = caseIds[cursor++];
-        try { await readCase(caseId); }
-        catch (error) { failures.push({ id: +caseId, error: String(error && error.message || error) }); }
+      } catch (error) {
+        failures.push({ id: +caseId, error: String(error && error.message || error) });
       }
-    }
-    var workers = [];
-    for (var i = 0; i < workerCount; i++) workers.push(worker());
-    await Promise.all(workers);
+    });
     return { linksOf: found, failures: failures, inspected: caseIds.length };
   };
   D.runQuery = async function () {
@@ -314,7 +308,7 @@
     }
     var byId = {};
     items.forEach(function (it) { byId[it.id] = it.fields; });
-    var linkedIdsOf = {}, linkedMetaOf = {}, linkedFetchIds = [], linkedSeen = {};
+    var linkedIdsOf = {}, linkedMetaOf = {}, linkedRelationsById = {}, linkedFetchIds = [], linkedSeen = {};
     try {
       var testCaseIds = items.filter(function (it) {
         return it.fields && it.fields['System.WorkItemType'] === 'Test Case';
@@ -324,29 +318,48 @@
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: testCaseIds.slice(j, j + 200), '$expand': 'relations', errorPolicy: 'omit' }) });
         (relationBatch.value || []).forEach(function (it) {
           (it.relations || []).forEach(function (rel) {
-            if (rel.rel !== 'System.LinkTypes.Related') return;
+            if (rel.rel !== 'System.LinkTypes.Hierarchy-Forward') return;
             var linkedId = D.relationWorkItemId(rel);
             if (!linkedId) return;
             if (linkedId === it.id) return;
             (linkedIdsOf[it.id] = linkedIdsOf[it.id] || {})[linkedId] = 1;
-            if (!byId[linkedId] && !linkedSeen[linkedId]) { linkedSeen[linkedId] = 1; linkedFetchIds.push(linkedId); }
+            if (!linkedSeen[linkedId]) { linkedSeen[linkedId] = 1; linkedFetchIds.push(linkedId); }
           });
         });
       }
       for (var k = 0; k < linkedFetchIds.length; k += 200) {
         var linkedBatch = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: linkedFetchIds.slice(k, k + 200), fields: fields, errorPolicy: 'omit' }) });
-        (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; });
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: linkedFetchIds.slice(k, k + 200), fields: fields, '$expand': 'relations', errorPolicy: 'omit' }) });
+        (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; linkedRelationsById[it.id] = it.relations || []; });
       }
-      var bugRelatedIdsOf = {};
+      var reciprocalChildIdsOf = {}, parentMismatchCount = 0, unavailableChildCount = 0;
       Object.keys(linkedIdsOf).forEach(function (caseId) {
         Object.keys(linkedIdsOf[caseId]).forEach(function (linkedId) {
-          if (byId[linkedId] && byId[linkedId]['System.WorkItemType'] === 'Bug') (bugRelatedIdsOf[caseId] = bugRelatedIdsOf[caseId] || {})[linkedId] = 1;
+          if (!byId[linkedId]) { unavailableChildCount++; return; }
+          if (byId[linkedId]['System.WorkItemType'] !== 'Bug') return;
+          var parentMatches = (linkedRelationsById[linkedId] || []).some(function (relation) {
+            return relation.rel === 'System.LinkTypes.Hierarchy-Reverse' && D.relationWorkItemId(relation) === +caseId;
+          });
+          if (parentMatches) (reciprocalChildIdsOf[caseId] = reciprocalChildIdsOf[caseId] || {})[linkedId] = 1;
+          else parentMismatchCount++;
         });
       });
-      var historyResult = await D.relatedLinksFromHistory(base, bugRelatedIdsOf);
+      var historyResult = await D.childLinksFromHistory(base, reciprocalChildIdsOf);
       linkedMetaOf = historyResult.linksOf;
-      if (historyResult.failures.length) D.S.bugLinkWarning = 'Related-link History lookup failed for ' + historyResult.failures.length + ' of ' + historyResult.inspected + ' Test Cases.';
+      var failedCases = {}, historyMismatchCount = 0;
+      historyResult.failures.forEach(function (failure) { failedCases[failure.id] = 1; });
+      Object.keys(reciprocalChildIdsOf).forEach(function (caseId) {
+        if (failedCases[caseId]) return;
+        Object.keys(reciprocalChildIdsOf[caseId]).forEach(function (linkedId) {
+          if (!linkedMetaOf[caseId] || !linkedMetaOf[caseId][linkedId]) historyMismatchCount++;
+        });
+      });
+      var warningParts = [];
+      if (unavailableChildCount) warningParts.push(unavailableChildCount + ' Child target(s) could not be read');
+      if (parentMismatchCount) warningParts.push(parentMismatchCount + ' Bug Child link(s) had no matching Parent back to the same Case');
+      if (historyMismatchCount) warningParts.push(historyMismatchCount + ' Bug Child link(s) were missing from Case History');
+      if (historyResult.failures.length) warningParts.push('History lookup failed for ' + historyResult.failures.length + ' of ' + historyResult.inspected + ' candidate Case(s)');
+      D.S.bugLinkWarning = warningParts.join('; ');
     } catch (bugLinkError) {
       linkedIdsOf = {};
       linkedMetaOf = {};
@@ -795,7 +808,7 @@
         dataCount: entries.length
       };
     });
-    wrap.appendChild(D.horizontalBarChart('Bug distribution by Rack — expandable Bug IDs', rows, 'No linked Bugs found yet'));
+    wrap.appendChild(D.horizontalBarChart('Bug distribution by Rack — expandable Bug IDs', rows, 'No verified Child Bugs found yet'));
     return wrap;
   };
   D.bugSourceLinks = function (entry, selectedRacks) {
@@ -808,7 +821,8 @@
       var caseLink = D.el('a', 'caseid', 'Case #' + link.testCase.id);
       caseLink.href = D.wiUrl(link.testCase.id); caseLink.target = '_blank'; caseLink.rel = 'noopener'; caseLink.title = link.testCase.title;
       row.appendChild(caseLink);
-      var metadata = link.addedAt ? 'Added ' + D.fmt(link.addedAt) : 'Added Related link';
+      var metadata = 'Child ↔ Parent ↔ History matched';
+      if (link.addedAt) metadata += ' · Added ' + D.fmt(link.addedAt);
       if (link.addedBy) metadata += ' by ' + link.addedBy;
       row.appendChild(D.el('span', 'bug-source-meta', metadata));
       wrap.appendChild(row);
@@ -1118,11 +1132,11 @@
       return entry.racks.some(function (rackEntry) { return selectedRacks[String(rackEntry.rack.id || rackEntry.rack.label)]; });
     });
     var t = D.el('table'), thead = D.el('thead'), hr = D.el('tr');
-    ['Bug', 'State', 'Severity', 'Priority', 'Title', 'Racks', 'Added Related sources (Rack → Case)'].forEach(function (h) { hr.appendChild(D.el('th', null, h)); });
+    ['Bug', 'State', 'Severity', 'Priority', 'Title', 'Racks', 'Verified Child sources (Rack → Case)'].forEach(function (h) { hr.appendChild(D.el('th', null, h)); });
     thead.appendChild(hr); t.appendChild(thead);
     var tb = D.el('tbody');
     if (!entries.length) {
-      var er = D.el('tr'), td = D.el('td', 'empty', 'No active Bug was found from an Added Related link in Test Case History.');
+      var er = D.el('tr'), td = D.el('td', 'empty', 'No Bug passed the Test Case Child ↔ Bug Parent ↔ Case History validation.');
       td.colSpan = 7; er.appendChild(td); tb.appendChild(er);
     }
     entries.forEach(function (entry) {
@@ -1169,7 +1183,7 @@
   D.bugLink = function (bug) {
     var link = D.el('a', 'bug-link' + (bug.rackOnly ? ' rack-only' : ''), 'BUG #' + bug.id);
     link.href = D.wiUrl(bug.id); link.target = '_blank'; link.rel = 'noopener';
-    link.title = (bug.state || 'Unknown state') + ' · ' + (bug.title || ('Bug #' + bug.id)) + (bug.rackLabels && bug.rackLabels.length ? ' · ' + bug.rackLabels.join(', ') + (bug.rackOnly ? ' only' : '') : '') + (bug.linkAddedAt ? ' · Related link added ' + D.fmt(bug.linkAddedAt) + (bug.linkAddedBy ? ' by ' + bug.linkAddedBy : '') : '');
+    link.title = (bug.state || 'Unknown state') + ' · ' + (bug.title || ('Bug #' + bug.id)) + (bug.rackLabels && bug.rackLabels.length ? ' · ' + bug.rackLabels.join(', ') + (bug.rackOnly ? ' only' : '') : '') + (bug.linkAddedAt ? ' · Verified Child link added ' + D.fmt(bug.linkAddedAt) + (bug.linkAddedBy ? ' by ' + bug.linkAddedBy : '') : '');
     if (bug.rackOnly) link.setAttribute('aria-label', 'BUG #' + bug.id + ' — linked in ' + bug.rackLabels[0] + ' only');
     return link;
   };
@@ -1583,7 +1597,7 @@
         refs.cPass.title = 'Closed Test Cases are counted as Pass. Rate denominator: Test Cases in the selected time range.';
         refs.cFail.title = 'Blocked Test Cases are counted as Fail. Rate denominator: Test Cases in the selected time range.';
         refs.cProgress.title = 'Test Cases whose current Azure DevOps State is In Progress.';
-        refs.cBugs.title = 'Unique active Bugs / affected Test Cases, limited to links recorded as Added Related in Test Case History.';
+        refs.cBugs.title = 'Unique Bugs / affected Test Cases after Child link, reciprocal Parent, and Case History validation.';
         [refs.cRacks, refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
         var stickyTop = D.el('div', 'panel-sticky'); stickyTop.appendChild(cards); panel.appendChild(stickyTop);
         var grid = D.el('div', 'grid');
@@ -1599,7 +1613,7 @@
         refs.priorityBox = D.el('div'); bPriority.appendChild(refs.priorityBox); panel.appendChild(bPriority);
         var bMetrics = D.box('Sample Size, Number_of_cycles & Test Duration — largest / longest first');
         refs.metricBox = D.el('div'); bMetrics.appendChild(refs.metricBox); panel.appendChild(bMetrics);
-        var b4 = D.box('Bug tracking — Added Related links from Test Case History');
+        var b4 = D.box('Bug tracking — verified Test Case Child links');
         refs.bugRackBox = D.el('div'); b4.appendChild(refs.bugRackBox);
         refs.bugStatsBox = D.el('div'); b4.appendChild(refs.bugStatsBox);
         refs.bugBox = D.el('div', 'bug-detail-scroll'); b4.appendChild(refs.bugBox); panel.appendChild(b4);
@@ -1608,8 +1622,8 @@
         refs.cReq = D.card('SYSTEM REQS', 0, '#fbbf24');
         refs.cCase = D.card('TEST CASES', '-', '#34d399');
         refs.cFiltered = D.card('UPDATED IN RANGE', 0, '#60a5fa');
-        refs.cBugs = D.card('LINKED BUGS', 0, '#f87171');
-        refs.cBugs.title = 'Unique active Bugs recorded as Added Related links in Test Case History for this Rack.';
+        refs.cBugs = D.card('CHILD BUGS', 0, '#f87171');
+        refs.cBugs.title = 'Unique Bugs whose Child link, reciprocal Parent, and Case History all match this Rack\'s Test Case.';
         [refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
         var rackSticky = D.el('div', 'panel-sticky'); rackSticky.appendChild(cards); panel.appendChild(rackSticky);
         var g = D.el('div', 'grid');
@@ -1623,7 +1637,7 @@
         refs.priorityBox = D.el('div'); rbPriority.appendChild(refs.priorityBox); panel.appendChild(rbPriority);
         var rbMetrics = D.box('Sample Size, Number_of_cycles & Test Duration — largest / longest first');
         refs.metricBox = D.el('div'); rbMetrics.appendChild(refs.metricBox); panel.appendChild(rbMetrics);
-        var rbBugs = D.box(def.rack.label + ' Bug list — Added Related links from Test Case History');
+        var rbBugs = D.box(def.rack.label + ' Bug list — verified Test Case Child links');
         refs.bugSummaryBox = D.el('div', 'rack-bug-reconcile'); rbBugs.appendChild(refs.bugSummaryBox);
         refs.bugBox = D.el('div', 'bug-detail-scroll'); rbBugs.appendChild(refs.bugBox); panel.appendChild(rbBugs);
         var tb = D.box('Feature → System Requirement → Test Case (click to expand)');
@@ -1713,7 +1727,7 @@
       }
     });
     var tf = allCases.filter(D.inRange).length, totalLinkedBugs = bugInventory.length;
-    var bugNote = D.S.bugLinkWarning ? ' Bug History: ' + D.S.bugLinkWarning + ' The core dashboard data is still current.' : '';
+    var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
     var rl = (D.RANGES.filter(function (x) { return x[0] === D.S.range; })[0] || ['', ''])[1];
@@ -1723,7 +1737,7 @@
     if (!tf && allCases.length) {
       D.setStatus(src + ': loaded ' + allCases.length + ' test cases, but nothing was updated within "' + rl + '" — charts are empty. Latest change: ' + D.fmt(D.latest(allCases)) + '.' + bugNote + metricNote + testNote, 'warn');
     } else if (D.S.racks.length) {
-      D.setStatus(src + ': ' + D.S.racks.length + ' racks, ' + allCases.length + ' test cases, ' + totalLinkedBugs + ' History-confirmed Related Bugs; "' + rl + '" contains ' + tf + ' updated items.' + bugNote + metricNote + testNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote) ? 'warn' : 'info');
+      D.setStatus(src + ': ' + D.S.racks.length + ' racks, ' + allCases.length + ' test cases, ' + totalLinkedBugs + ' verified Child Bugs; "' + rl + '" contains ' + tf + ' updated items.' + bugNote + metricNote + testNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote) ? 'warn' : 'info');
     }
   };
   D.load = async function () {
