@@ -58,7 +58,8 @@
     /^\/_apis\/projects\/?$/i.test(location.pathname);
   if (!isDashboardEntry) return;
   var D = {};
-  D.CFG = {"org":"https://azurecsi.visualstudio.com","orgName":"azurecsi","project":"Dev","queryId":"9254024e-6a97-44ed-953b-1aa07d38fb48","queryUrl":"https://azurecsi.visualstudio.com/Dev/_queries/query/9254024e-6a97-44ed-953b-1aa07d38fb48/","testResultDays":28};
+  //D.CFG = {"org":"https://azurecsi.visualstudio.com","orgName":"azurecsi","project":"Dev","queryId":"9254024e-6a97-44ed-953b-1aa07d38fb48","queryUrl":"https://azurecsi.visualstudio.com/Dev/_queries/query/9254024e-6a97-44ed-953b-1aa07d38fb48/","testResultDays":28};
+  D.CFG = {"org":"https://azurecsi.visualstudio.com","orgName":"azurecsi","project":"Building%20Block","queryId":"3949645","queryUrl":"https://azurecsi.visualstudio.com/Building%20Block/_testPlans/define?planId=3949645&suiteId=3949646","testResultDays":28};
   if (extensionContext) {
     D.CFG.org = String(extensionContext.org || D.CFG.org).replace(/\/+$/, '');
     D.CFG.orgName = extensionContext.orgName || D.CFG.orgName;
@@ -66,7 +67,8 @@
     D.CFG.queryUrl = D.CFG.org + '/' + encodeURIComponent(D.CFG.project) + '/_queries/query/' + D.CFG.queryId + '/';
   }
   D.DEFAULT_QUERIES = [
-    { name: 'C4143_DV-Scale', org: 'https://azurecsi.visualstudio.com', orgName: 'azurecsi', project: 'Dev', queryId: '9254024e-6a97-44ed-953b-1aa07d38fb48', queryUrl: 'https://azurecsi.visualstudio.com/Dev/_queries/query/9254024e-6a97-44ed-953b-1aa07d38fb48/', builtin: true },
+    { name: 'C9A16_MP-Scale', org: 'https://azurecsi.visualstudio.com', orgName: 'azurecsi', project: 'Building%20Block', queryId: '3949645', queryUrl: 'https://azurecsi.visualstudio.com/Building%20Block/_testPlans/define?planId=3949645&suiteId=3949646', builtin: true },
+    { name: 'C4143_DV_Scale', org: 'https://azurecsi.visualstudio.com', orgName: 'azurecsi', project: 'dev', queryId: '9254024e-6a97-44ed-953b-1aa07d38fb48', queryUrl: 'https://azurecsi.visualstudio.com/Dev/_queries/query/9254024e-6a97-44ed-953b-1aa07d38fb48/', builtin: true },
     { name: '[EchoFalls][C4142][PSE] EVT - Scale Testing', org: 'https://azurecsi.visualstudio.com', orgName: 'azurecsi', project: 'Dev', queryId: '6e06c765-2ff5-43c4-80c6-e78438eea6d9', queryUrl: 'https://azurecsi.visualstudio.com/Dev/_queries/query/6e06c765-2ff5-43c4-80c6-e78438eea6d9/', builtin: true }
   ];
   D.STATE_COLORS = {"Not Started":"#94a3b8","New":"#60a5fa","Proposed":"#f5b544","Design":"#a78bfa","In Progress":"#818cf8","Active":"#818cf8","Ready":"#38bdf8","Committed":"#22d3ee","Passed":"#34d399","Closed":"#2dd4bf","Done":"#2dd4bf","Completed":"#2dd4bf","Failed":"#f87171","Blocked":"#fb7185","Removed":"#9ca3af","Resolved":"#22d3ee","Paused":"#fbbf24"};
