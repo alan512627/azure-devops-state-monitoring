@@ -2,14 +2,14 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 文件版本 | 2.8 |
+| 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.7，工作分支已發布，待合併 `main`） |
-| 最新腳本大小 | 200393 bytes（約 195.7 KB） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.11，工作分支已發布，待合併 `main`） |
+| 最新腳本大小 | 196,259 bytes；SHA-256 `5671F345114BAEC56B0BFB8E7F4DBB1633E869E71B64F649B12BEAAAAAA7B25F` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
-> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為移除 Case title 篩選，第 38 節為單一 FPGA teardown Case 的明確排除。前面章節中的「未完成」為當時狀態，最新狀態以第 38 節為準。
+> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為移除 Case title 篩選，第 38 節為單一 FPGA teardown Case 排除，第 39 節修正其跨 Phase 的 title 格式差異，第 40 節為 dashboard 資訊精簡與固定時間軸，第 41 節為百分比格式統一，第 42 節為移除 Number_of_cycles 統計。前面章節中的「未完成」為當時狀態，最新狀態以第 42 節為準。
 
 > **2026-08-14 的 Live Query 曾驗證到 5 Racks × 每櫃 58 Test Cases = 290 Test Cases；這是當時的查詢結果，不再作為固定 Expected 基準。v1.8.6 只顯示每次 Query 的實際數量。文件中的 54／270、58／290 等數值均為各版本當時的驗證紀錄。**
 
@@ -1134,3 +1134,46 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - `?additional=1` fixture 保留另外兩個非 reference title 以確認原有 review 沒有失效：兩個 Phase 各為 215、每 Rack 43，Additional Case title review 顯示 10 筆；FPGA teardown Case 仍不會被算入 review 或統計。
 - userscript v1.12.7：200,393 bytes，SHA-256 `27FA06F276FC1CDF04067B29439391480B47166078A12C6FC94986845F6CB5D9`。Extension v1.3.7 已通過 TypeScript check、esbuild 與 VSIX package；VSIX 為 64,802 bytes，SHA-256 `CE5B3E26E43410956615DE7C104DA5CBD49F12DEBC95197757214F17712EBB6E`。讀回 VSIX 已確認包含 userscript v1.12.7、`EXCLUDED_CASE_TITLES`、`caseIsIncluded` 與 manifest v1.3.7。正式 Azure DevOps 需在登入 Dashboard 按 **Re-run query**，確認實際每 Rack／Phase 都回到使用者預期的 41／205。
 - 已推送 commit `c398f86` 至 `local/phase-tabs`，並建立 Draft PR [#20](https://github.com/alan512627/azure-devops-state-monitoring/pull/20)（建立時 GitHub 回報 `CLEAN`）。未直接合併 `main`；Tampermonkey 的固定 `main` URL 會在 PR 合併後取得 v1.12.7。
+
+## 39. 2026-11-01 FPGA teardown 排除跨 Phase title 格式修正（v1.12.8）
+
+### 39.1 根因與規則
+
+- v1.12.7 使用原始 title 的字串完全相等，因此 Phase 2 如果有不同大小寫、空白、`/` 周圍空格或 `full-link` 的連字號格式，就不會命中 configured exclusion。
+- `D.exclusionTitleKey()` 現在先做 Unicode NFKC、轉小寫，並把非英數字元統一為單一空白。只有完整正規化後等於指定 FPGA teardown title 的 Case 才回傳 `EXCLUDED BY CONFIGURED SCOPE`；這不是模糊或部分關鍵字篩選。
+- 同一規則被 `runQuery` 的 Bug link 讀取、hierarchy filter、Phase counts、Case exclusion audit、snapshot、Test Results input、Test Features、匯出與所有卡片共同使用，確保 Phase 1／2、Rack01～05 均一致略過。
+
+### 39.2 本機驗證與發布
+
+- fixture 讓 Phase 1 使用使用者提供的原始 title，而 Phase 2 使用 `[system] [functionality] ... Glacier Peak/Castle Peak ... (full-link teardown)` 格式。兩種格式均命中排除：兩個 Phase 都是 205、每 Rack 41，兩邊各有 5 筆 configured exclusion audit，且沒有 body overflow 或 browser errors。
+- userscript v1.12.8：200,726 bytes，SHA-256 `73C6B978F5182609F63D87DF35AFDA28C21A3D3CB91EE49D15CE750B0E363374`。Extension v1.3.8 通過 TypeScript check、esbuild 與 VSIX package；VSIX 為 64,870 bytes，SHA-256 `1B4CCE1A5BDAEFBEDD5ABCC670655959363191A397CDF999D1CAF82DAB50666A`。讀回 VSIX 的 `dist/C4143-DVScale-Dashboard.user.js` 已確認含 userscript v1.12.8、`EXCLUDED_CASE_TITLES` 與 `exclusionTitleKey()`。
+- 靜態檢查 `node --check` 與 `git diff --check` 通過。本機 fixture 的跨格式回歸結果見 39.2 上述；此結果不是 Azure DevOps live 證據。正式 Azure DevOps 仍需在登入 Dashboard 按 **Re-run query**，確認 Phase 1／2 每 Rack 41、每 Phase 205。
+- 修正已推送 commit `1f2590d` 至 `local/phase-tabs`，並建立 Draft PR [#21](https://github.com/alan512627/azure-devops-state-monitoring/pull/21)（目前 GitHub 回報 `CLEAN`）。未直接合併 `main`，Tampermonkey 固定 `main` URL 需待 PR 合併後取得 v1.12.8。
+
+## 40. 2026-11-01 Dashboard 資訊精簡與固定 Execution Timeline（v1.12.9）
+
+### 40.1 UI 調整
+
+- Overview／Rack 頂端移除 `FEATURES`、`SYSTEM REQS`、`EXCLUDED CASES` 卡片；同時移除 Case exclusion audit、Additional Case title review 與 Phase／Rack consistency 三個版面區塊。底層 scope audit、tag validation、count consistency 與 exclusion 邏輯仍保留給查詢與狀態訊息使用。
+- Overview／Rack 的 metric inventory 改為只顯示 `Number_of_cycles`；移除 Sample Size、Test Duration 圖表。Case row 與 Test Features 列表也不再顯示 Sample／Duration badge 或欄位；原始欄位仍保留於資料模型與匯出結構，避免破壞既有資料讀取。
+- Insights 移除 Azure DevOps Test Runs／Test Plans 明細表，保留結果摘要、Pass／Fail 與 snapshot change。
+- Execution Timeline 的日期列使用 sticky header 固定在 timeline viewport 頂端，Case rows 在同一容器內獨立上下／左右捲動；日期 tick 放大至 12px、row 間距加大、bar 高度與位置等比調整，bar 的百分比位置仍由相同 min／max date span 計算。
+
+### 40.2 驗證與發布
+
+- `node --check C4143-DVScale-Dashboard.user.js`、`git diff --check` 與 Extension `npm run package`（TypeScript check、esbuild、VSIX）通過。瀏覽器 fixture 確認 Overview 不再有 FEATURES／SYSTEM REQS／EXCLUDED CASES 或三段 audit，Insights 沒有 Test Runs table，Execution Timeline header 為 sticky、日期字體 12px、row 62px、bar 12px；Phase 1／2 各 205、每 Rack 41 的既有 fixture scope 未受影響。正式 ADO live query 仍需登入後按 **Re-run query**。
+- userscript v1.12.9：196,849 bytes，SHA-256 `5EDC0C8DD36CF21146AED23470E9E94CE3D06D9AA58347D9FD478D005116A388`。Extension v1.3.9 VSIX 為 64,214 bytes，SHA-256 `A265F64527435C99D2E3E6764A66D2EADADCEA583FF9F6EFC74B31A6F9C42339`；讀回 `dist/C4143-DVScale-Dashboard.user.js` 確認為 v1.12.9。修正 commit `099f086` 已追加到 Draft PR #21；不會改動 Azure DevOps 組織資料。
+
+## 41. 2026-11-01 百分比格式統一（v1.12.10）
+
+- 新增共用 `D.percent()`，所有 dashboard 計算欄、卡片、圓餅圖 tooltip／label、legend、horizontal bar、Priority／Bug severity 百分比均限制最多一位小數；整數會顯示為 `20%`，不會顯示多餘的 `.0`，零值維持 `0%`。
+- `D.rate()` 改用相同 formatter；只調整呈現，不改變任何 count、denominator 或統計邏輯。
+- `node --check`、`git diff --check`、Extension `npm run package` 通過；fixture 顯示 Pass／Fail 卡片與 pie／legend／bar 百分比皆為最多一位小數（例如 `24.9%`、整數 `20%`、零值 `0%`）。正式 live ADO 仍需登入後按 **Re-run query**。
+- userscript v1.12.10：196,875 bytes，SHA-256 `A6ED9D558E5FB574BF42BAB4DF4AE2C2649FB40A276D532CCCEDA615EC5BF9AB`。Extension v1.3.10 VSIX 為 64,255 bytes，SHA-256 `20615D773C2406D9438E80072D637309BF1BB74DC447A584145216DAA1DEABFC`；讀回 VSIX 確認 bundled userscript 為 v1.12.10。修正將追加到 Draft PR #21。
+
+## 42. 2026-11-01 移除 Number_of_cycles 統計（v1.12.11）
+
+- 移除 Overview／Rack 的 Number_of_cycles 統計區塊，以及 Test Features 表格中的可見 Cycles 欄位。
+- Number_of_cycles 仍保留在資料模型與既有 Excel 匯出結構，這次只移除 dashboard 畫面上的統計與欄位，不影響資料讀取相容性。
+- `node --check`、`git diff --check`、Extension `npm run package` 通過；fixture 確認 Overview／Rack 不再顯示 Number_of_cycles 統計，Test Features 也不再顯示 Cycles 欄位，Phase 1／2 仍各 205、每 Rack 41。正式 live ADO 仍需登入後按 **Re-run query**。
+- userscript v1.12.11：196,259 bytes，SHA-256 `5671F345114BAEC56B0BFB8E7F4DBB1633E869E71B64F649B12BEAAAAAA7B25F`。Extension v1.3.11 VSIX 為 64,140 bytes，SHA-256 `DF76914D4E0FA70E993A64010098019A2705DA4304DBB6F745DA405CEBC5E60C`；讀回 VSIX 確認 bundled userscript 為 v1.12.11。修正將追加到 Draft PR #21。
