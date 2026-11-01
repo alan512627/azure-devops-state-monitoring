@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.26
-// @description  Uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
+// @version      1.12.27
+// @description  Uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -585,18 +585,6 @@
   D.testRunUrl = function (runId) {
     return D.CFG.org + '/' + encodeURIComponent(D.CFG.project) + '/_TestManagement/Runs?runId=' + encodeURIComponent(runId) + '&_a=runCharts';
   };
-  D.fetchRunResults = async function (base, run) {
-    var output = [], skip = 0;
-    while (skip < 10000) {
-      var response = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/test/Runs/' + run.id
-        + '/results?detailsToInclude=Point&$skip=' + skip + '&$top=1000&api-version=7.1');
-      var values = response.value || [];
-      output = output.concat(values);
-      if (values.length < 1000) break;
-      skip += values.length;
-    }
-    return output;
-  };
   D.fetchPlanTestPoints = async function (base, plan) {
     var rootSuite = plan && plan.rootSuite && plan.rootSuite.id;
     if (plan == null || plan.id == null || rootSuite == null) return [];
@@ -668,13 +656,6 @@
     return D.CFG.org + '/' + encodeURIComponent(D.CFG.project) + '/_testManagement?planId=' + encodeURIComponent(planId) + '&suiteId=' + encodeURIComponent(suiteId) + '&pointId=' + encodeURIComponent(pointId);
   };
   D.loadTestResults = async function (base, cases) {
-    var now = new Date(), windows = [];
-    now.setUTCMilliseconds(0);
-    for (var offset = 0; offset < D.CFG.testResultDays; offset += 7) {
-      var max = new Date(now.getTime() - offset * 86400000);
-      var min = new Date(now.getTime() - Math.min(offset + 7, D.CFG.testResultDays) * 86400000 + 1000);
-      windows.push({ min: min.toISOString(), max: max.toISOString() });
-    }
     var planMap = {}, planDetails = [], planError = '';
     try {
       var planResponse = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/testplan/plans?filterActivePlans=false&api-version=7.1');
@@ -697,7 +678,6 @@
       byId[String(testCase.id)] = testCase;
       var key = D.normalizedTitle(testCase.title);
       (byTitle[key] = byTitle[key] || []).push(testCase);
-      testCase.latestResult = null;
       testCase.latestTestPoint = null;
     });
     pointSets.forEach(function (set) {
@@ -712,65 +692,18 @@
         if (!testCase) return;
         var planRef = set.plan || point.testPlan || point.plan || {}, planId = planRef.id != null ? String(planRef.id) : '';
         var planName = planRef.name || planMap[planId] || (planId ? 'Plan ' + planId : 'Test Plan');
-        var mapped = { id: point.id, outcome: D.testPointOutcome(point) || 'Unspecified', state: point.state || '', lastUpdatedDate: D.testPointDate(point), planId: planId, planName: planName, suiteId: point.suiteId || point.testSuite && point.testSuite.id || point.suite && point.suite.id || '', url: D.testPointUrl(Object.assign({}, point, { planId: planId })) };
+        var mapped = { id: point.id, outcome: D.testPointOutcome(point) || 'Unspecified', state: point.state || '', lastUpdatedDate: D.testPointDate(point), planId: planId, planName: planName, suiteId: point.suiteId || point.testSuite && point.testSuite.id || point.suite && point.suite.id || '', url: D.testPointUrl(Object.assign({}, point, { planId: planId })),
+          runId: point.lastTestRun && point.lastTestRun.id && String(point.lastTestRun.id) !== '0' ? String(point.lastTestRun.id) : (point.results && point.results.lastTestRunId ? String(point.results.lastTestRunId) : '') };
         var current = testCase.latestTestPoint;
         if (!current || String(mapped.lastUpdatedDate || '') > String(current.lastUpdatedDate || '') || (String(mapped.lastUpdatedDate || '') === String(current.lastUpdatedDate || '') && (+mapped.id || 0) > (+current.id || 0))) testCase.latestTestPoint = mapped;
         if (!matchedCaseIds[testCase.id]) { matchedCaseIds[testCase.id] = true; pointMatches++; }
       });
     });
-    // Test Point outcomes are the dashboard's Case outcome source: publish them now so charts do not wait on Test Runs.
     D.S.testResults = {
-      status: 'ok', pointsReady: true, runsStatus: 'loading', runsError: '', source: 'Azure DevOps Test Plans Test Points (Execute) + Test Runs / Results', lookbackDays: D.CFG.testResultDays,
-      runs: [], testPlans: Object.keys(planMap).map(function (id) { return { id: id, name: planMap[id] }; }), testPlanWarning: planError,
-      matchedResults: 0, pointMatches: pointMatches, pointErrors: pointErrors, pointSource: pointSource, summary: D.testResultSummary(cases), loadedAt: new Date().toISOString()
+      status: 'ok', source: 'Azure DevOps Test Plans Test Points (Execute)',
+      testPlans: Object.keys(planMap).map(function (id) { return { id: id, name: planMap[id] }; }), testPlanWarning: planError,
+      pointMatches: pointMatches, pointErrors: pointErrors, pointSource: pointSource, summary: D.testResultSummary(cases), loadedAt: new Date().toISOString()
     };
-    if (typeof D.refresh === 'function') { try { D.refresh(); } catch (refreshError) { } }
-    try {
-    var runResponses = await D.mapLimit(windows, 2, function (windowRange) {
-      var url = base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/test/runs?minLastUpdatedDate=' + encodeURIComponent(windowRange.min)
-        + '&maxLastUpdatedDate=' + encodeURIComponent(windowRange.max) + '&$top=100&api-version=7.1';
-      return D.apiFetch(url);
-    });
-    var runMap = {};
-    runResponses.forEach(function (response) { (response.value || []).forEach(function (run) { runMap[run.id] = run; }); });
-    var runs = Object.keys(runMap).map(function (id) { return runMap[id]; }).sort(function (a, b) {
-      return String(b.completedDate || b.startedDate || '').localeCompare(String(a.completedDate || a.startedDate || ''));
-    });
-    var resultSets = await D.mapLimit(runs, 4, async function (run) {
-      try { return await D.fetchRunResults(base, run); }
-      catch (error) { run._resultError = String((error && error.message) || error); return []; }
-    });
-    var matchedResults = 0;
-    runs.forEach(function (run, runIndex) {
-      run.resultCount = (resultSets[runIndex] || []).length;
-      (resultSets[runIndex] || []).forEach(function (result) {
-        var resultCaseId = result.testCase && result.testCase.id != null ? String(result.testCase.id) : '';
-        var testCase = byId[resultCaseId] || null, method = testCase ? 'id' : '';
-        if (!testCase) {
-          var exactTitle = byTitle[D.normalizedTitle(result.testCaseTitle)] || [];
-          if (exactTitle.length === 1) { testCase = exactTitle[0]; method = 'exact title'; }
-        }
-        if (!testCase) return;
-        var completed = result.completedDate || result.dateCompleted || result.lastUpdatedDate || run.completedDate || run.startedDate || null;
-        var mapped = {
-          id: result.id, outcome: result.outcome || 'Unspecified', state: result.state || '', completedDate: completed,
-          runId: run.id, runName: run.name || ('Run ' + run.id), runUrl: D.testRunUrl(run.id), matchMethod: method
-        };
-        if (!testCase.latestResult || String(mapped.completedDate || '') > String(testCase.latestResult.completedDate || '')) testCase.latestResult = mapped;
-        matchedResults++;
-      });
-    });
-    D.S.testResults = Object.assign({}, D.S.testResults, {
-      runsStatus: 'ok', summary: D.testResultSummary(cases), matchedResults: matchedResults, loadedAt: new Date().toISOString(),
-      runs: runs.map(function (run) {
-        var planId = run.plan && run.plan.id != null ? String(run.plan.id) : '';
-        return { id: run.id, name: run.name || ('Run ' + run.id), planId: planId, planName: planMap[planId] || (run.plan && run.plan.name) || '', state: run.state || '', startedDate: run.startedDate || null, completedDate: run.completedDate || null, resultCount: run.resultCount || 0, url: D.testRunUrl(run.id), error: run._resultError || '' };
-      })
-    });
-    } catch (runLoadError) {
-      // Test Runs only feed the Insights run list; a failure here must not discard Test Point outcomes.
-      D.S.testResults = Object.assign({}, D.S.testResults, { runsStatus: 'error', runsError: String((runLoadError && runLoadError.message) || runLoadError), runs: [] });
-    }
   };
   D.isFailedTestOutcome = function (outcome) { return /^(failed|blocked|aborted|error|timeout)$/i.test(String(outcome || '').trim()); };
   D.testResultSummary = function (cases) {
@@ -785,17 +718,16 @@
       else if (key === 'Not Applicable') summary.notApplicable++;
       else summary.active++;
     });
-    summary.denominator = summary.passed + summary.failed;
+    summary.denominator = summary.cases;
     summary.passRate = D.rate(summary.passed, summary.denominator);
     summary.failRate = D.rate(summary.failed, summary.denominator);
     return summary;
   };
   D.loadSupplementalData = async function (base, cases) {
-    D.S.testResults = { status: 'loading', runs: [] };
+    D.S.testResults = { status: 'loading' };
     await D.loadTestResults(base, cases).catch(function (error) {
-      if (D.S.testResults && D.S.testResults.pointsReady) { D.S.testResults.runsStatus = 'error'; D.S.testResults.runsError = String((error && error.message) || error); return; }
-      cases.forEach(function (testCase) { testCase.latestResult = null; testCase.latestTestPoint = null; });
-      D.S.testResults = { status: 'error', runs: [], error: String((error && error.message) || error), source: 'Azure DevOps Test Plans Test Points / Test Runs / Results' };
+      cases.forEach(function (testCase) { testCase.latestTestPoint = null; });
+      D.S.testResults = { status: 'error', error: String((error && error.message) || error), source: 'Azure DevOps Test Plans Test Points (Execute)' };
     });
   };
   D.collect = function (node, type, out) { out = out || []; if (node.type === type) out.push(node); (node.children || []).forEach(function (c) { D.collect(c, type, out); }); return out; };
@@ -984,7 +916,7 @@
     return !count || !total ? '0%' : D.percent(count * 100 / total);
   };
   D.outcomeValue = function (count, rate) {
-    return count ? count + ' · ' + rate : '0%';
+    return rate || '0%';
   };
   D.outcomeSummary = function (cases) {
     var summary = { total: cases.length, pass: 0, fail: 0, inProgress: 0 };
@@ -1013,7 +945,7 @@
     return counts;
   };
   D.resultOutcomeSummary = function (cases) {
-    var counts = D.resultOutcomeCounts(cases), denominator = counts.Passed + counts.Failed;
+    var counts = D.resultOutcomeCounts(cases), denominator = cases.length;
     return { counts: counts, passed: counts.Passed, failed: counts.Failed, denominator: denominator,
       passRate: D.rate(counts.Passed, denominator), failRate: D.rate(counts.Failed, denominator) };
   };
@@ -1353,19 +1285,6 @@
     badge.title = result.planName ? ('Execute Test Point · ' + (result.planName || '') + (result.suiteId ? ' · Suite #' + result.suiteId : '') + (result.lastUpdatedDate ? ' · ' + D.fmt(result.lastUpdatedDate) : '')) : result.runName + ' · ' + D.fmt(result.completedDate) + ' · matched by ' + result.matchMethod;
     return badge;
   };
-  D.testRunsTable = function () {
-    var runs = D.S.testResults && D.S.testResults.runs || [];
-    if (!runs.length) return D.el('div', 'empty', D.S.testResults && D.S.testResults.status === 'error' ? 'Test Runs unavailable: ' + D.S.testResults.error : D.S.testResults && D.S.testResults.runsStatus === 'error' ? 'Test Runs unavailable: ' + D.S.testResults.runsError : D.S.testResults && D.S.testResults.runsStatus === 'loading' ? 'Loading Test Runs from the last ' + D.CFG.testResultDays + ' days …' : 'No Test Runs found in the last ' + D.CFG.testResultDays + ' days');
-    var wrap = D.el('div', 'table-scroll'), table = D.el('table'), thead = D.el('thead'), header = D.el('tr');
-    ['Run', 'Test Plan', 'State', 'Started', 'Completed', 'Results', 'API status'].forEach(function (label) { header.appendChild(D.el('th', null, label)); }); thead.appendChild(header); table.appendChild(thead);
-    var tbody = D.el('tbody'); runs.slice(0, 100).forEach(function (run) {
-      var row = D.el('tr'), runCell = D.el('td'), link = D.el('a', null, '#' + run.id + ' · ' + run.name); link.href = run.url; link.target = '_blank'; link.rel = 'noopener'; runCell.appendChild(link); row.appendChild(runCell);
-      row.appendChild(D.el('td', null, run.planName ? ((run.planId ? '#' + run.planId + ' · ' : '') + run.planName) : '-'));
-      row.appendChild(D.el('td', null, run.state || '-')); row.appendChild(D.el('td', null, D.fmt(run.startedDate))); row.appendChild(D.el('td', null, D.fmt(run.completedDate)));
-      row.appendChild(D.el('td', 'num', String(run.resultCount || 0))); row.appendChild(D.el('td', null, run.error || 'Loaded')); tbody.appendChild(row);
-    });
-    table.appendChild(tbody); wrap.appendChild(table); return wrap;
-  };
   D.changeDetails = function (label, items, kind) {
     var details = D.el('details', 'change-group'), summary = D.el('summary', null, label + ' (' + items.length + ')'); details.appendChild(summary);
     if (!items.length) { details.appendChild(D.el('div', 'empty', 'No cases')); return details; }
@@ -1452,13 +1371,10 @@
   D.weeklyXlsx = function () {
     var caseHeaders = ['Rack', 'Case ID', 'Title', 'Case State', 'Changed Date', 'Changed This Week', 'Snapshot Change', 'Latest Test Result', 'Result Date', 'Test Run ID', 'Priority', 'Sample Size', 'Number of Cycles', 'Test Duration', 'Actual Start Date', 'Actual Completion Date', 'Estimate Start Date', 'Estimate Completion Date', 'Linked Bugs', 'Azure DevOps URL'];
     var caseRows = D.weeklyRows().map(function (row) { return [row.rack, { value: row.id, href: row.url }, row.title, row.state, row.changed, row.changedThisWeek, row.snapshotChange, row.result, row.resultDate, row.runId, row.priority, row.sampleSize, row.cycles, row.duration, row.actualStart, row.actualCompletion, row.estimateStart, row.estimateCompletion, row.bugs, { value: row.url, href: row.url }]; });
-    var runHeaders = ['Run ID', 'Name', 'Test Plan ID', 'Test Plan', 'State', 'Started', 'Completed', 'Result Count', 'Status', 'URL'];
-    var runRows = (D.S.testResults.runs || []).map(function (run) { return [{ value: run.id, href: run.url }, run.name, run.planId || '-', run.planName || '-', run.state, D.fmt(run.startedDate), D.fmt(run.completedDate), run.resultCount, run.error || 'Loaded', { value: run.url, href: run.url }]; });
     var comparison = D.phaseComparison(D.S.snapshotComparison), changeRows = [];
     [['Added', comparison.added || []], ['Removed', comparison.removed || []], ['State changed', comparison.stateChanged || []], ['Updated this week', comparison.updatedThisWeek || []]].forEach(function (group) { group[1].forEach(function (item) { changeRows.push([group[0], { value: item.id, href: D.wiUrl(item.id) }, item.title, item.rack, item.beforeState || '-', item.afterState || item.state || '-', D.fmt(item.changed)]); }); });
     return { bytes: D.xlsxWorkbook([
       { name: 'Weekly Cases', headers: caseHeaders, rows: caseRows, widths: [70, 72, 360, 90, 110, 95, 130, 110, 110, 80, 70, 85, 100, 95, 130, 140, 130, 140, 220, 300] },
-      { name: 'Test Runs', headers: runHeaders, rows: runRows, widths: [72, 220, 80, 180, 80, 110, 110, 90, 120, 300] },
       { name: 'Snapshot Changes', headers: ['Change', 'Case ID', 'Title', 'Rack', 'Before', 'After', 'Changed'], rows: changeRows, widths: [100, 72, 360, 90, 90, 90, 110] }
     ]), count: caseRows.length };
   };
@@ -1468,15 +1384,15 @@
     var sticky = D.el('div', 'panel-sticky'), cards = D.el('div', 'cards');
     var resultAvailable = test.status === 'ok';
     [D.card('RESULTS / CASES', resultAvailable ? summary.matched + ' / ' + summary.cases : 'Unavailable', '#60a5fa'),
-      D.card('RESULT PASSED / RATE', resultAvailable ? D.outcomeValue(summary.passed, summary.passRate) : 'Unavailable', '#34d399'),
-      D.card('RESULT FAILED / RATE', resultAvailable ? D.outcomeValue(summary.failed, summary.failRate) : 'Unavailable', '#fb7185'),
+      D.card('PASS RATE', resultAvailable ? D.outcomeValue(summary.passed, summary.passRate) : 'Unavailable', '#34d399'),
+      D.card('FAIL RATE', resultAvailable ? D.outcomeValue(summary.failed, summary.failRate) : 'Unavailable', '#fb7185'),
       D.card('ACTIVE / NOT UPDATED', resultAvailable ? summary.active : 'Unavailable', D.outcomeColor('Active')),
       D.card('UPDATED THIS WEEK', (comparison.updatedThisWeek || []).length, '#c084fc')].forEach(function (card) { cards.appendChild(card); });
     sticky.appendChild(cards); wrap.appendChild(sticky);
     var toolbar = D.el('div', 'insights-toolbar'), csv = D.el('button', 'primary', 'Download weekly CSV'), excel = D.el('button', 'primary', 'Download weekly Excel (.xlsx)');
-    csv.addEventListener('click', D.exportWeeklyCsv); excel.addEventListener('click', D.exportWeeklyExcel); toolbar.appendChild(csv); toolbar.appendChild(excel); toolbar.appendChild(D.el('span', 'small', D.phaseLabel(D.S.phase) + ' reports include all Racks in this phase, latest Test Result, weekly changes, metrics, Bugs and hyperlinks.')); wrap.appendChild(toolbar);
-    var resultGrid = D.el('div', 'grid'), resultBox = D.box('Real Pass / Fail — latest Test Result per Case');
-    resultBox.appendChild(D.el('div', 'metric-total', resultAvailable ? ('Denominator: ' + summary.denominator + ' Passed + Failed · Blocked: ' + summary.blocked + ' · Not Applicable: ' + summary.notApplicable + ' · Active: ' + summary.active) : ('Unavailable: ' + (test.error || 'not loaded'))));
+    csv.addEventListener('click', D.exportWeeklyCsv); excel.addEventListener('click', D.exportWeeklyExcel); toolbar.appendChild(csv); toolbar.appendChild(excel); toolbar.appendChild(D.el('span', 'small', D.phaseLabel(D.S.phase) + ' reports include all Racks in this phase, Execute Test Point outcome, weekly changes, metrics, Bugs and hyperlinks.')); wrap.appendChild(toolbar);
+    var resultGrid = D.el('div', 'grid'), resultBox = D.box('Execute Test Point outcome per Case');
+    resultBox.appendChild(D.el('div', 'metric-total', resultAvailable ? ('Denominator: ' + summary.denominator + ' Test Cases · Blocked: ' + summary.blocked + ' · Not Applicable: ' + summary.notApplicable + ' · Active: ' + summary.active) : ('Unavailable: ' + (test.error || 'not loaded'))));
     resultBox.appendChild(D.horizontalBarChart('Latest Test Results', [
       { label: 'Passed', valueText: summary.passed + ' · ' + summary.passRate, percent: summary.denominator ? summary.passed * 100 / summary.denominator : 0, items: [], color: '#34d399' },
       { label: 'Failed', valueText: summary.failed + ' · ' + summary.failRate, percent: summary.denominator ? summary.failed * 100 / summary.denominator : 0, items: [], color: '#fb7185' },
@@ -1490,9 +1406,7 @@
     changesBox.appendChild(D.changeDetails('State changed', comparison.stateChanged || [], 'state'));
     changesBox.appendChild(D.changeDetails('Added', comparison.added || [], 'added')); changesBox.appendChild(D.changeDetails('Removed', comparison.removed || [], 'removed'));
     resultGrid.appendChild(resultBox); resultGrid.appendChild(changesBox); wrap.appendChild(resultGrid);
-    var runsBox = D.box('Azure DevOps Test Runs / Test Plans — last ' + D.CFG.testResultDays + ' days');
-    if (test.testPlanWarning) runsBox.appendChild(D.el('div', 'empty', 'Test Plan names unavailable: ' + test.testPlanWarning + '. Test Run and Result data is still shown.'));
-    runsBox.appendChild(D.testRunsTable()); wrap.appendChild(runsBox); return wrap;
+    return wrap;
   };
   D.CSS = "*{box-sizing:border-box}\nbody{margin:0;font-family:\"Segoe UI\",Roboto,\"Noto Sans TC\",\"Microsoft JhengHei\",sans-serif;background:#0b1220;color:#e2e8f0;font-size:14px}\na{color:#7dd3fc;text-decoration:none}a:hover{text-decoration:underline}\nheader{padding:14px 20px;background:linear-gradient(90deg,#132039,#0d1729);border-bottom:1px solid #1e2b45;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}\nh1{font-size:18px;margin:0 0 4px}\n.sub{font-size:12px;color:#8fa3c0}\n.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 20px;background:#0e1830;border-bottom:1px solid #1e2b45;position:sticky;top:0;z-index:20}\n.controls label{font-size:12px;color:#9fb3d0;display:flex;gap:6px;align-items:center}\nselect,button,input{background:#16243d;color:#e2e8f0;border:1px solid #27395c;border-radius:6px;padding:6px 10px;font-size:13px;font-family:inherit}\nbutton{cursor:pointer}button:hover{background:#1e3a5f}\nbutton.primary{background:#2563eb;border-color:#2563eb}button.primary:hover{background:#1d4ed8}\n.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:10px 20px 0}\n.tab{padding:8px 16px;border-radius:8px 8px 0 0;background:#111d33;border:1px solid #1e2b45;border-bottom:none;color:#9fb3d0;cursor:pointer;font-size:13px}\n.tab.active{background:#16243d;color:#fff;font-weight:600;box-shadow:inset 0 3px 0 #38bdf8}\n.panel{display:none;padding:16px 20px 60px}.panel.active{display:block}\n.cards{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;align-items:center}\n.card{background:#111d33;border:1px solid #1e2b45;border-radius:10px;padding:10px 16px;min-width:110px}\n.card .k{font-size:10px;color:#8fa3c0;letter-spacing:.05em}\n.card .v{font-size:22px;font-weight:700;margin-top:2px}\n.grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(320px,1.15fr);gap:14px;margin-bottom:16px}\n@media(max-width:980px){.grid{grid-template-columns:1fr}}\n.box{background:#111d33;border:1px solid #1e2b45;border-radius:10px;padding:14px}\n.box h3{margin:0 0 10px;font-size:12px;color:#cbd8ea;letter-spacing:.05em;text-transform:uppercase}\n.chartwrap{height:300px}\n.legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;justify-content:center}\ntable{width:100%;border-collapse:collapse;font-size:13px}\nth,td{text-align:left;padding:6px 8px;border-bottom:1px solid #1c2942}\nth{color:#8fa3c0;font-size:10px;text-transform:uppercase;letter-spacing:.05em}\ntr.total td{font-weight:700;border-top:2px solid #27395c;border-bottom:none}\ntd.num,th.num{text-align:right;font-variant-numeric:tabular-nums}\n.chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;color:#0b1220}\n.bar{height:8px;border-radius:4px;background:#1c2942;overflow:hidden;display:flex;min-width:70px}\ndetails.node{border:1px solid #1c2942;border-radius:8px;margin:6px 0;background:#0f1a2e}\ndetails.node[open]{background:#101d33}\ndetails.node>summary{cursor:pointer;padding:8px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;list-style:none}\ndetails.node>summary::-webkit-details-marker{display:none}\ndetails.node>summary:before{content:\"\\25B8\";color:#5b7ba6;font-size:12px;transition:transform .15s}\ndetails.node[open]>summary:before{transform:rotate(90deg)}\ndetails.node>summary:hover{background:#152341}\n.nodebody{padding:2px 10px 10px 24px}\n.ntitle{font-weight:600}\n.lvl1>summary>.ntitle{color:#f0f6ff;font-size:14px}\n.lvl2>summary>.ntitle{color:#cfe3ff;font-size:13px}\n.lvl3>summary>.ntitle{color:#b7cdea;font-size:12.5px;font-weight:500}\n.type{font-size:10px;color:#7d93b3;border:1px solid #27395c;border-radius:4px;padding:1px 5px}\n.spacer{flex:1}\n.caserow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px dashed #1c2942;font-size:13px}\n.caserow:hover{background:#152341}\n.caseid{font-family:Consolas,monospace;font-size:12px;color:#7dd3fc;min-width:64px}\n.casetitle{flex:1;min-width:200px;color:#d7e3f4}\n.date{font-size:11px;color:#7d93b3;font-variant-numeric:tabular-nums}\n.banner{margin:10px 20px;padding:10px 14px;border-radius:8px;font-size:13px;border:1px solid}\n.banner.info{background:#10233d;border-color:#27507f;color:#bcd9ff}\n.banner.warn{background:#3a2a10;border-color:#7a5a1c;color:#ffd9a0}\n.banner.err{background:#3a1620;border-color:#7f2740;color:#ffc2cf}\n.hide{display:none!important}\n.small{font-size:11px;color:#8fa3c0}\n.empty{padding:14px;text-align:center;color:#8fa3c0;font-size:13px}";
   D.CSS += "\n.type-badge{font-weight:700;letter-spacing:.02em}\n.colour-key{display:inline-flex;flex-wrap:wrap;gap:5px;align-items:center;padding-left:8px;border-left:1px solid #27395c}\n.tab{font-size:14px;padding:10px 18px;min-height:40px}\n.banner{position:fixed;right:20px;bottom:20px;z-index:100;max-width:min(680px,calc(100vw - 40px));margin:0;padding:11px 14px;box-shadow:0 14px 36px rgba(0,0,0,.38);opacity:1;transform:translateY(0);transition:opacity .7s ease,transform .7s ease;pointer-events:auto}\n.banner.fading{opacity:0;transform:translateY(10px);pointer-events:none}\n.cards{display:flex;flex-wrap:nowrap;gap:12px;width:100%;align-items:stretch;overflow-x:auto;scrollbar-width:thin}\n.cards>.card{flex:1 0 118px;width:auto;min-width:118px;max-width:none;overflow:hidden;padding-left:12px;padding-right:12px}\n.card{position:relative;transition:transform .15s,filter .15s}\n.card:hover{transform:translateY(-2px);filter:brightness(1.12)}\n.card .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.card .v{white-space:nowrap;overflow:visible;text-overflow:clip;font-variant-numeric:tabular-nums;line-height:1.2;min-height:28px;display:flex;align-items:center}\n.tree-toolbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:66.6667%;max-width:100%;margin-bottom:14px;align-items:center}\n.tree-toolbar>button,.tree-toolbar>input{width:100%;min-width:0}\n.bug-link{display:inline-flex;align-items:center;border:1px solid rgba(248,113,113,.72);border-radius:999px;padding:2px 8px;background:rgba(248,113,113,.14);color:#fecaca;font-size:11px;font-weight:700;white-space:nowrap}\n.bug-link:hover{background:rgba(248,113,113,.25);color:#fff;text-decoration:none}\n.caserow{margin:3px 0;border-radius:6px;border-bottom-color:transparent;transition:filter .15s,transform .15s}\n.caserow:hover{filter:brightness(1.18);transform:translateX(2px)}\ndetails.node{overflow:hidden;transition:filter .15s,border-color .15s}\ndetails.node:hover{filter:brightness(1.08)}\n@media(max-width:720px){.tab{font-size:14px;padding:9px 14px;min-height:38px;flex:1 1 auto}.banner{right:12px;bottom:12px;max-width:calc(100vw - 24px)}.colour-key{width:100%;padding:6px 0 0;border-left:0;border-top:1px solid #27395c}.casetitle{min-width:150px}.tree-toolbar{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.tree-toolbar>input{grid-column:1/-1}}";
@@ -2200,12 +2114,12 @@
         refs.cRacks = D.card('RACKS', phaseRacks.length, '#38bdf8');
         refs.cCase = D.card('TOTAL TEST CASES', '-', '#34d399');
         refs.cFiltered = D.card('UPDATED IN RANGE', 0, '#60a5fa');
-        refs.cPass = D.card('PASS CASES / RATE', '-', '#2dd4bf');
-        refs.cFail = D.card('FAIL CASES (BLOCKED) / RATE', '-', '#fb7185');
+        refs.cPass = D.card('PASS RATE', '-', '#2dd4bf');
+        refs.cFail = D.card('FAIL RATE', '-', '#fb7185');
         refs.cProgress = D.card('IN PROGRESS CASES', 0, '#818cf8');
         refs.cBugs = D.card('BUGS / AFFECTED CASES', '-', '#fb923c');
-        refs.cPass.title = 'Latest Azure DevOps Test Result Outcome = Passed. Rate denominator: latest Passed + Failed outcomes in the selected time range.';
-        refs.cFail.title = 'Latest Azure DevOps Test Result Outcome = Failed. Rate denominator: latest Passed + Failed outcomes in the selected time range.';
+        refs.cPass.title = 'Execute Test Point outcome = Passed ÷ all Test Cases in the selected time range (same basis as the Outcome pie chart).';
+        refs.cFail.title = 'Execute Test Point outcome = Failed ÷ all Test Cases in the selected time range (same basis as the Outcome pie chart).';
         refs.cProgress.title = 'Test Cases whose current Azure DevOps State is In Progress.';
         refs.cBugs.title = 'Unique Bugs / affected Test Cases after Child link, reciprocal Parent, and Case History validation.';
         [refs.cRacks, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
@@ -2358,7 +2272,7 @@
     var consistencyNote = consistency.allEqual ? ' Phase/Rack counts are consistent at ' + consistency.baseline + ' per Rack.' : ' Phase/Rack count mismatch detected; dashboard retains the actual hierarchy data.';
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
-    var testNote = D.S.testResults && (D.S.testResults.status === 'error' || D.S.testResults.runsStatus === 'error') ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
+    var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Point outcomes are unavailable: ' + D.S.testResults.error + '.' : '';
     if (D.S.testResults && D.S.testResults.status === 'ok') testNote += ' Test Point matches: ' + (D.S.testResults.pointMatches || 0) + '/' + allCases.length + ' via ' + (D.S.testResults.pointSource || 'plan scan') + (D.S.testResults.pointErrors && D.S.testResults.pointErrors.length ? ' (' + D.S.testResults.pointErrors.length + ' plan errors)' : '') + '.';
     var timingNote = D.S.lastLoadTiming ? ' Load timing: core ' + D.S.lastLoadTiming.coreMs + 's, supplemental ' + D.S.lastLoadTiming.supplementalMs + 's.' : '';
     var rl = (D.RANGES.filter(function (x) { return x[0] === D.S.range; })[0] || ['', ''])[1];
@@ -2384,7 +2298,7 @@
         return;
       }
       D.S.racks = s.racks; D.S.loadedAt = s.savedAt || null; D.S.snapshotMode = true; D.S.bugLinkWarning = ''; D.S.metricFieldWarning = '';
-      D.S.testResults = s.testResults || { status: 'unavailable', runs: [], error: 'This snapshot predates Test Result storage.' };
+      D.S.testResults = s.testResults || { status: 'unavailable', runs: [], error: 'This snapshot predates Test Point outcome storage.' };
       D.S.snapshotComparison = s.snapshotComparison || { status: 'first', previousAt: null, currentAt: D.S.loadedAt, added: [], removed: [], stateChanged: [], updatedThisWeek: [] };
       document.getElementById('updated').textContent = 'Snapshot: ' + D.fmt(D.S.loadedAt);
       if (D.S.active > D.phaseRacks().length + 3) D.S.active = 0;
@@ -2395,7 +2309,7 @@
     try {
       var previous = D.readSnapshot();
       D.S.lastLoadTiming = null;
-      D.S.testResults = { status: 'loading', runs: [] };
+      D.S.testResults = { status: 'loading' };
       var res = await D.runQuery({ deferBugHistory: true });
       var coreFinishedAt = (window.performance && performance.now) ? performance.now() : Date.now();
       D.S.racks = res.racks; D.S.loadedAt = new Date().toISOString(); D.S.snapshotMode = false;

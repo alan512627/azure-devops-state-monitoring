@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.26，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.27，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1279,4 +1279,11 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 現象：v1.12.25 實測首次載入／重新整理後 Overview 圓餅圖與 Rack 分頁仍全為 `Active`；切到 Rack 1 再切回 Overview 時，只有未受 `status` 判斷的 Overview 長條圖會出現 Rack 1 正確 outcome。
 - 根因：Test Point outcome 已寫入 Case，但 `D.S.testResults.status` 要等 120 天 Test Runs 與每個 Run 的 results 全部讀完才變成 `ok`；在大型 org 這段很慢或會失敗。圓餅圖、Rack 分頁與 Pass／Fail 卡片以 `status === 'ok'` 為條件，因此持續顯示全部 `Active`；若 Test Runs 讀取拋錯，`loadSupplementalData` 的 catch 還會把已取得的 `latestTestPoint` 清空。
 - 修正：Test Point 對應完成後立即設定 `status: 'ok'`、`pointsReady: true` 並 `D.refresh()`；Test Runs 改為獨立階段（`runsStatus: loading/ok/error`），失敗只影響 Insights 的 Test Run 清單，不再清除 Test Point outcome。
+- 未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point；API 仍為唯讀。
+
+## 57. 2026-11-02 移除 Test Runs 載入，Pass／Fail rate 改以全部 Case 為分母（v1.12.27）
+
+- 確認 Test Runs／Results 與 Case outcome 無關：v1.12.21 起 Case outcome 只讀 `latestTestPoint`，`latestResult`（由 Test Runs 對應）已無任何畫面或報表引用；Insights 的 Test Run 清單是專案近 120 天的全部 Runs，未依目前 Query Case 篩選，因此 Run ID／名稱與 Case 對不上。
+- 移除 `D.fetchRunResults`、120 天 Test Runs 視窗查詢、Insights 的 `Azure DevOps Test Runs / Test Plans` 表格與 weekly Excel 的 `Test Runs` 工作表；載入只剩 Test Plans 名稱 + Test Point by Case ID，速度明顯提升。Weekly 報表的 `Test Run ID` 欄改取 Test Point 的 `lastTestRun.id`。
+- Overview 卡片改名為 `PASS RATE`／`FAIL RATE`，只顯示百分比；分母由「Passed + Failed」改為選定時間範圍內全部 Case，與 Outcome 圓餅圖同一基準（例：1 Passed／10 Failed／205 Case → 0.5%／4.9%，舊版會顯示 `1 · 9.1%`／`10 · 90.9%`）。Insights 卡片與 Pass／Fail 長條同步調整。
 - 未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point；API 仍為唯讀。
