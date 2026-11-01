@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.4
-// @description  Derives Rack placement from the parent Rack Feature hierarchy and validates exact Phase Test Case tags.
+// @version      1.12.6
+// @description  Includes every valid-Phase Test Case and reviews non-reference titles only when a Rack exceeds 41 Cases.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -88,7 +88,7 @@
     estimateStartDate: { aliases: ['Estimate Start Date', 'Estimated Start Date', 'Estimate Start', 'Estimated Start'] },
     estimateCompletionDate: { aliases: ['Estimate Completion Date', 'Estimated Completion Date', 'Estimate Finish Date', 'Estimated Finish Date', 'Estimate End Date', 'Estimated End Date'] }
   };
-  D.IN_SCOPE_CASE_TITLES = [
+  D.CASE_TITLE_REFERENCE = [
     'Verify all HW component properties are enumerated correctly in CloudHost OS',
     'Verify PCIe devices and their properties are enumerated correctly in CloudHost OS',
     'Verify all subsystem FRU content complies with the FRU specification',
@@ -359,7 +359,7 @@
     var linkedIdsOf = {}, linkedMetaOf = {}, linkedRelationsById = {}, linkedFetchIds = [], linkedSeen = {};
     try {
       var testCaseIds = items.filter(function (it) {
-        return it.fields && it.fields['System.WorkItemType'] === 'Test Case' && D.caseInScope({ title: it.fields['System.Title'] });
+        return it.fields && it.fields['System.WorkItemType'] === 'Test Case';
       }).map(function (it) { return it.id; });
       for (var j = 0; j < testCaseIds.length; j += 200) {
         var relationBatch = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
@@ -496,27 +496,6 @@
     return date.getUTCFullYear() + '-' + String(date.getUTCMonth() + 1).padStart(2, '0') + '-' + String(date.getUTCDate()).padStart(2, '0');
   };
   D.normalizedTitle = function (value) { return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
-  D.normalizeScopeTitle = function (value) {
-    var text = String(value || '');
-    if (text.normalize) text = text.normalize('NFKC');
-    return text.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
-  };
-  D.caseInScope = function (testCase) {
-    return D.caseScopeMatch(testCase).inScope;
-  };
-  D.caseScopeMatch = function (testCase) {
-    if (!D._scopeExactTitles) {
-      D._scopeExactTitles = {}; D._scopeNormalizedTitles = {};
-      D.IN_SCOPE_CASE_TITLES.forEach(function (title) {
-        D._scopeExactTitles[title] = 1;
-        D._scopeNormalizedTitles[D.normalizeScopeTitle(title)] = title;
-      });
-    }
-    var actual = String(testCase && testCase.title || '');
-    if (D._scopeExactTitles[actual]) return { inScope: true, reason: 'APPROVED', expectedTitle: actual };
-    var expected = D._scopeNormalizedTitles[D.normalizeScopeTitle(actual)] || '';
-    return { inScope: false, reason: expected ? 'TITLE MISMATCH' : 'NOT APPROVED', expectedTitle: expected };
-  };
   D.testRunUrl = function (runId) {
     return D.CFG.org + '/' + encodeURIComponent(D.CFG.project) + '/_TestManagement/Runs?runId=' + encodeURIComponent(runId) + '&_a=runCharts';
   };
@@ -645,7 +624,7 @@
   };
   D.filterNodeForPhase = function (node, phase, keepRoot) {
     if (!node) return null;
-    if (node.type === 'Test Case') { var placement = D.placementMatch(node); return placement.inPlacement && placement.phase === phase && D.caseInScope(node) ? node : null; }
+    if (node.type === 'Test Case') { var placement = D.placementMatch(node); return placement.inPlacement && placement.phase === phase ? node : null; }
     var children = (node.children || []).map(function (child) { return D.filterNodeForPhase(child, phase, false); }).filter(Boolean);
     if (!keepRoot && !children.length) return null;
     var clone = Object.assign({}, node); clone.children = children; return clone;
@@ -658,7 +637,7 @@
   };
   D.phaseCounts = function () {
     var counts = { phase1: 0, phase2: 0 };
-    (D.S.racks || []).forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (testCase) { var placement = D.placementMatch(testCase); if (placement.inPlacement && D.caseInScope(testCase)) counts[placement.phase]++; }); });
+    (D.S.racks || []).forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (testCase) { var placement = D.placementMatch(testCase); if (placement.inPlacement) counts[placement.phase]++; }); });
     return counts;
   };
   D.rackConsistency = function () {
@@ -680,6 +659,21 @@
     var baseline = values.length ? values[0] : 0;
     return { rows: rows, baseline: baseline, allEqual: baseline > 0 && values.every(function (value) { return value === baseline; }) };
   };
+  D.additionalTitleReview = function (phase, rack) {
+    phase = phase || D.S.phase || 'phase1';
+    var reference = {};
+    D.CASE_TITLE_REFERENCE.forEach(function (title) { reference[title] = 1; });
+    var racks = rack ? [rack] : D.phaseRacks(phase);
+    return racks.map(function (currentRack) {
+      var cases = D.collect(currentRack, 'Test Case');
+      return {
+        rack: currentRack,
+        total: cases.length,
+        exceedsReference: cases.length > D.CASE_TITLE_REFERENCE.length,
+        additional: cases.length > D.CASE_TITLE_REFERENCE.length ? cases.filter(function (testCase) { return !reference[testCase.title]; }) : []
+      };
+    });
+  };
   D.scopeStats = function (phase, rack) {
     phase = phase || D.S.phase || 'phase1';
     var included = [], excluded = [];
@@ -688,15 +682,13 @@
       D.collect(rawRack, 'Test Case').forEach(function (testCase) {
         var placement = D.placementMatch(testCase);
         if (placement.phase && placement.phase !== phase) return;
-        var titleMatch = D.caseScopeMatch(testCase), match = placement.inPlacement ? titleMatch : { inScope: false, reason: placement.reason, expectedTitle: placement.expected }, entry = { testCase: testCase, rack: rawRack, match: match, placement: placement };
+        var match = placement.inPlacement ? { inScope: true, reason: 'INCLUDED' } : { inScope: false, reason: placement.reason, expectedTitle: placement.expected }, entry = { testCase: testCase, rack: rawRack, match: match, placement: placement };
         (match.inScope ? included : excluded).push(entry);
       });
     });
     return {
       included: included, excluded: excluded,
-      phaseTagErrors: excluded.filter(function (entry) { return entry.placement && !entry.placement.inPlacement; }),
-      titleMismatches: excluded.filter(function (entry) { return entry.match.reason === 'TITLE MISMATCH'; }),
-      notApproved: excluded.filter(function (entry) { return entry.match.reason === 'NOT APPROVED'; })
+      phaseTagErrors: excluded.filter(function (entry) { return entry.placement && !entry.placement.inPlacement; })
     };
   };
   D.allScopedCases = function () {
@@ -1311,22 +1303,22 @@
     var stats = D.scopeStats(phase, rack), wrap = D.el('div', 'scope-audit');
     wrap.setAttribute('data-scope-included', stats.included.length);
     wrap.setAttribute('data-scope-excluded', stats.excluded.length);
-    wrap.appendChild(D.el('p', 'scope-audit-summary', 'Every included Case must have an exact approved title and the exact C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2 tag. Rack is derived only from the enclosing Rack Feature title in the Azure DevOps hierarchy; Rack01-Rack05 Case tags are not used for placement. All statistics, charts, Bugs, Test Result mapping, snapshots, and exports use only those Cases.'));
+    wrap.appendChild(D.el('p', 'scope-audit-summary', 'Every Test Case under a Rack Feature hierarchy is included regardless of its title when it has the exact C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2 tag. Rack is derived only from the enclosing Rack Feature title; Rack01-Rack05 Case tags are not used for placement. All statistics, charts, Bugs, Test Result mapping, snapshots, and exports use those Cases.'));
     if (!stats.excluded.length) {
-      wrap.appendChild(D.el('div', 'scope-audit-ok', 'No additional ' + D.phaseLabel(phase) + ' Test Cases were found outside the approved scope.'));
+      wrap.appendChild(D.el('div', 'scope-audit-ok', 'No Test Cases have missing or conflicted Phase tags in this view.'));
       return wrap;
     }
-    var details = D.el('details', 'scope-audit-details'), summary = D.el('summary', null, stats.excluded.length + ' Test Case' + (stats.excluded.length === 1 ? '' : 's') + ' excluded: ' + stats.phaseTagErrors.length + ' Phase tag issue / ' + stats.titleMismatches.length + ' title mismatch / ' + stats.notApproved.length + ' not approved');
+    var details = D.el('details', 'scope-audit-details'), summary = D.el('summary', null, stats.excluded.length + ' Test Case' + (stats.excluded.length === 1 ? '' : 's') + ' excluded: ' + stats.phaseTagErrors.length + ' Phase tag issue');
     details.appendChild(summary);
     var scroll = D.el('div', 'table-scroll'), table = D.el('table'), head = D.el('thead'), headRow = D.el('tr');
-    ['Rack Feature', 'Case', 'Reason', 'Current title', 'Case tags', 'Expected tag / approved title', 'State'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
+    ['Rack Feature', 'Case', 'Reason', 'Current title', 'Case tags', 'Expected Phase tag', 'State'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
     head.appendChild(headRow); table.appendChild(head);
     var body = D.el('tbody');
     stats.excluded.sort(function (a, b) { return (a.rack.num || 999) - (b.rack.num || 999) || String(a.testCase.title).localeCompare(String(b.testCase.title)); }).forEach(function (entry) {
       var row = D.el('tr'); row.setAttribute('data-excluded-case-id', entry.testCase.id);
       row.appendChild(D.el('td', null, entry.rack.label || entry.rack.title || 'Rack'));
       var caseCell = D.el('td'), link = D.el('a', null, '#' + entry.testCase.id); link.href = D.wiUrl(entry.testCase.id); link.target = '_blank'; link.rel = 'noopener'; caseCell.appendChild(link); row.appendChild(caseCell);
-      row.appendChild(D.el('td', 'scope-reason ' + (entry.match.reason === 'TITLE MISMATCH' ? 'mismatch' : (entry.placement && !entry.placement.inPlacement ? 'mismatch' : 'not-approved')), entry.match.reason));
+      row.appendChild(D.el('td', 'scope-reason mismatch', entry.match.reason));
       row.appendChild(D.el('td', null, entry.testCase.title));
       row.appendChild(D.el('td', null, entry.testCase.tags || '—'));
       row.appendChild(D.el('td', null, entry.match.expectedTitle || '—'));
@@ -1354,6 +1346,36 @@
       body.appendChild(tr);
     });
     table.appendChild(body); scroll.appendChild(table); wrap.appendChild(scroll); return wrap;
+  };
+  D.additionalTitleReviewPanel = function (phase, rack) {
+    var reviews = D.additionalTitleReview(phase, rack), wrap = D.el('div', 'title-review'), reviewed = reviews.filter(function (item) { return item.exceedsReference; }), additional = [];
+    reviews.forEach(function (item) { additional = additional.concat(item.additional.map(function (testCase) { return { rack: item.rack, testCase: testCase }; })); });
+    wrap.setAttribute('data-title-review-racks', reviewed.length);
+    wrap.setAttribute('data-title-review-cases', additional.length);
+    if (!reviewed.length) {
+      wrap.appendChild(D.el('div', 'scope-audit-ok', 'No Rack exceeds the 41-item title reference; no additional-title review is required. Case titles remain unfiltered.'));
+      return wrap;
+    }
+    wrap.appendChild(D.el('p', 'scope-audit-summary', reviewed.map(function (item) { return item.rack.label + ': ' + item.total + ' Cases'; }).join(' · ') + '. The following titles have no exact match in the 41-item reference. They remain included until you decide otherwise.'));
+    if (!additional.length) {
+      wrap.appendChild(D.el('div', 'scope-audit-details rack-consistency-alert', 'The Rack count exceeds 41, but every listed title has an exact reference match. Review duplicate Cases before changing scope.'));
+      return wrap;
+    }
+    var details = D.el('details', 'scope-audit-details'); details.open = true;
+    details.appendChild(D.el('summary', null, additional.length + ' Case title' + (additional.length === 1 ? '' : 's') + ' to review — included, not excluded'));
+    var scroll = D.el('div', 'table-scroll'), table = D.el('table'), head = D.el('thead'), headRow = D.el('tr');
+    ['Rack Feature', 'Case', 'Title not in 41-item reference', 'State', 'Phase tag'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
+    head.appendChild(headRow); table.appendChild(head);
+    var body = D.el('tbody');
+    additional.sort(function (a, b) { return (a.rack.num || 999) - (b.rack.num || 999) || (+a.testCase.id - +b.testCase.id); }).forEach(function (item) {
+      var row = D.el('tr'); row.setAttribute('data-title-review-case-id', item.testCase.id);
+      row.appendChild(D.el('td', null, item.rack.label || item.rack.title || 'Rack'));
+      var caseCell = D.el('td'), link = D.el('a', null, '#' + item.testCase.id); link.href = D.wiUrl(item.testCase.id); link.target = '_blank'; link.rel = 'noopener'; caseCell.appendChild(link); row.appendChild(caseCell);
+      row.appendChild(D.el('td', null, item.testCase.title || '—'));
+      var stateCell = D.el('td'); stateCell.appendChild(D.chip(item.testCase.state || '?')); row.appendChild(stateCell);
+      row.appendChild(D.el('td', null, item.testCase.tags || '—')); body.appendChild(row);
+    });
+    table.appendChild(body); scroll.appendChild(table); details.appendChild(scroll); wrap.appendChild(details); return wrap;
   };
   D.executionInfo = function (testCase) {
     var execution = testCase && testCase.execution || {};
@@ -1950,15 +1972,16 @@
         refs.cFail = D.card('FAIL CASES (BLOCKED) / RATE', '-', '#fb7185');
         refs.cProgress = D.card('IN PROGRESS CASES', 0, '#818cf8');
         refs.cBugs = D.card('BUGS / AFFECTED CASES', '-', '#fb923c');
-        refs.cExcluded = D.card('OUT OF SCOPE', 0, '#f5b544');
+        refs.cExcluded = D.card('PHASE TAG ISSUES', 0, '#f5b544');
         refs.cPass.title = 'Closed Test Cases are counted as Pass. Rate denominator: Test Cases in the selected time range.';
         refs.cFail.title = 'Blocked Test Cases are counted as Fail. Rate denominator: Test Cases in the selected time range.';
         refs.cProgress.title = 'Test Cases whose current Azure DevOps State is In Progress.';
         refs.cBugs.title = 'Unique Bugs / affected Test Cases after Child link, reciprocal Parent, and Case History validation.';
-        refs.cExcluded.title = 'Query Test Cases excluded because their title is not an exact match to one of the 41 approved titles, or their Phase tag is missing or conflicted. These are excluded from every statistic and export.';
+        refs.cExcluded.title = 'Query Test Cases excluded only because their Phase tag is missing or conflicted. Case titles do not affect inclusion.';
         [refs.cRacks, refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs, refs.cExcluded].forEach(function (c) { cards.appendChild(c); });
         var stickyTop = D.el('div', 'panel-sticky'); stickyTop.appendChild(cards); panel.appendChild(stickyTop);
-        var scopeAudit = D.box('Scope filter audit — excluded from statistics'); refs.scopeBox = D.el('div'); scopeAudit.appendChild(refs.scopeBox); panel.appendChild(scopeAudit);
+        var scopeAudit = D.box('Phase tag audit — excluded from statistics'); refs.scopeBox = D.el('div'); scopeAudit.appendChild(refs.scopeBox); panel.appendChild(scopeAudit);
+        var titleReview = D.box('Additional Case title review — 41-item reference (not excluded)'); refs.titleReviewBox = D.el('div'); titleReview.appendChild(refs.titleReviewBox); panel.appendChild(titleReview);
         var consistencyAudit = D.box('Phase / Rack Case count consistency'); refs.consistencyBox = D.el('div'); consistencyAudit.appendChild(refs.consistencyBox); panel.appendChild(consistencyAudit);
         var grid = D.el('div', 'grid');
         var b1 = D.box('Test Case state distribution — all Racks');
@@ -1983,12 +2006,13 @@
         refs.cCase = D.card('TEST CASES', '-', '#34d399');
         refs.cFiltered = D.card('UPDATED IN RANGE', 0, '#60a5fa');
         refs.cBugs = D.card('CHILD BUGS', 0, '#f87171');
-        refs.cExcluded = D.card('OUT OF SCOPE', 0, '#f5b544');
+        refs.cExcluded = D.card('PHASE TAG ISSUES', 0, '#f5b544');
         refs.cBugs.title = 'Unique Bugs whose Child link, reciprocal Parent, and Case History all match this Rack\'s Test Case.';
-        refs.cExcluded.title = 'Test Cases in this Rack Feature and Phase excluded because their title is not an exact match to the approved 41-title scope, or their Phase tag is missing or conflicted.';
+        refs.cExcluded.title = 'Test Cases in this Rack Feature excluded only because their Phase tag is missing or conflicted. Case titles do not affect inclusion.';
         [refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cBugs, refs.cExcluded].forEach(function (c) { cards.appendChild(c); });
         var rackSticky = D.el('div', 'panel-sticky'); rackSticky.appendChild(cards); panel.appendChild(rackSticky);
-        var rackScopeAudit = D.box(def.rack.label + ' scope filter audit'); refs.scopeBox = D.el('div'); rackScopeAudit.appendChild(refs.scopeBox); panel.appendChild(rackScopeAudit);
+        var rackScopeAudit = D.box(def.rack.label + ' Phase tag audit'); refs.scopeBox = D.el('div'); rackScopeAudit.appendChild(refs.scopeBox); panel.appendChild(rackScopeAudit);
+        var rackTitleReview = D.box(def.rack.label + ' additional Case title review — 41-item reference (not excluded)'); refs.titleReviewBox = D.el('div'); rackTitleReview.appendChild(refs.titleReviewBox); panel.appendChild(rackTitleReview);
         var g = D.el('div', 'grid');
         var rb1 = D.box(def.rack.label + ' State distribution');
         refs.chartHost = D.el('div', 'chartwrap'); rb1.appendChild(refs.chartHost);
@@ -2062,6 +2086,7 @@
         p.cBugs._val.textContent = linkedBugs.length + ' / ' + bugCases.length;
         p.cExcluded._val.textContent = phaseScope.excluded.length;
         p.scopeBox.innerHTML = ''; p.scopeBox.appendChild(D.scopeAuditPanel(D.S.phase));
+        p.titleReviewBox.innerHTML = ''; p.titleReviewBox.appendChild(D.additionalTitleReviewPanel(D.S.phase));
         p.consistencyBox.innerHTML = ''; p.consistencyBox.appendChild(D.rackConsistencyPanel());
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.rackTable(phaseRacks));
         p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(f));
@@ -2088,6 +2113,7 @@
         p.cBugs._val.textContent = rackBugEntries.length;
         p.cExcluded._val.textContent = rackScope.excluded.length;
         p.scopeBox.innerHTML = ''; p.scopeBox.appendChild(D.scopeAuditPanel(D.S.phase, p.rack));
+        p.titleReviewBox.innerHTML = ''; p.titleReviewBox.appendChild(D.additionalTitleReviewPanel(D.S.phase, p.rack));
         var c2 = D.countStates(fc);
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.statsTable(c2));
         p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(fc));
@@ -2102,7 +2128,7 @@
     var tf = allCases.filter(D.inRange).length, totalLinkedBugs = bugInventory.length;
     var activeScope = D.scopeStats(D.S.phase), excludedCount = activeScope.excluded.length;
     var consistency = D.rackConsistency();
-    var scopeNote = ' Scope filter: ' + allCases.length + ' Case(s) included after exact title and Phase tag validation; ' + activeScope.phaseTagErrors.length + ' Phase tag issue(s), ' + activeScope.titleMismatches.length + ' title mismatch(es), and ' + activeScope.notApproved.length + ' not-approved Case(s) excluded. Rack comes from the enclosing Rack Feature title.';
+    var scopeNote = ' Phase validation: ' + allCases.length + ' Case(s) included regardless of title; ' + activeScope.phaseTagErrors.length + ' Case(s) excluded only for missing or conflicted Phase tags. Rack comes from the enclosing Rack Feature title.';
     var consistencyNote = consistency.allEqual ? ' Phase/Rack counts are consistent at ' + consistency.baseline + ' per Rack.' : ' Phase/Rack count mismatch detected; dashboard retains the actual hierarchy data.';
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
@@ -2171,7 +2197,7 @@
     var map = {};
     ((snapshot && snapshot.racks) || []).forEach(function (rack) {
       D.collect(rack, 'Test Case').forEach(function (testCase) {
-        if (!D.caseInScope(testCase)) return;
+        if (!D.placementMatch(testCase).inPlacement) return;
         map[String(testCase.id)] = { id: testCase.id, title: testCase.title, rack: rack.label || rack.title || 'Rack', phase: D.casePhase(testCase), state: testCase.state || '?', changed: testCase.changed || null };
       });
     });

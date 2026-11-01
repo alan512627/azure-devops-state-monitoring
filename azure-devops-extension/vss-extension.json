@@ -1,9 +1,9 @@
 {
   "manifestVersion": 1,
   "id": "c4143-dvscale-dashboard",
-  "version": "1.3.4",
+  "version": "1.3.6",
   "name": "C4143 DV-Scale Dashboard",
-  "description": "Track approved Phase 1 and Phase 2 Test Cases using Rack Feature hierarchy placement and exact Phase tags, with execution timelines, Test Results, Bugs, reports and snapshots.",
+  "description": "Track all valid-Phase Test Cases using Rack Feature hierarchy placement, with over-41 title review, timelines, Test Results, Bugs, reports and snapshots.",
   "publisher": "alan512627",
   "public": false,
   "categories": ["Azure Boards", "Azure Test Plans"],
