@@ -5,8 +5,8 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.19，本分支待合併 `main`） |
-| 最新腳本大小 | 203,339 bytes；SHA-256 `F3E19DF3BFCABDFBD28BC285B82BBECAB352A57A055CFB5682FBEA6A0637572A` |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.20，本分支待合併 `main`） |
+| 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
 > 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為移除 Case title 篩選，第 38 節為單一 FPGA teardown Case 排除，第 39 節修正其跨 Phase 的 title 格式差異，第 40 節為 dashboard 資訊精簡與固定時間軸，第 41 節為百分比格式統一，第 42 節為移除 Number_of_cycles 統計。前面章節中的「未完成」為當時狀態，最新狀態以第 42 節為準。
@@ -1229,3 +1229,12 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 核心 Query、Overview、Rack 與其它 supplemental failure isolation 不受影響；未修改 Azure DevOps organization、Query、Work Item 或 Test Plan。
 - userscript v1.12.19：203,339 bytes，SHA-256 `F3E19DF3BFCABDFBD28BC285B82BBECAB352A57A055CFB5682FBEA6A0637572A`。Extension v1.3.19 VSIX：65,451 bytes，SHA-256 `FD6BC14A65C948A89362578E14982ED14750817DCA7AD1A86D22A2E05D5E970A`。
 - `node --check`、`git diff --check` 與 Extension `npm run package`（TypeScript、esbuild、VSIX）通過；正式 live ADO 需重新整理或按 **Re-run query** 確認 Bug validation 不再出現 HTTP 400。
+
+## 50. 2026-11-01 Test Result Outcome 統計與 Pass/Fail rate 修正（v1.12.20）
+
+- Overview 新增全 Phase 的 Test Result Outcome 圓餅圖與長條圖，分類包含 Passed、Failed、Blocked、Not Applicable、Other、No Result；百分比以該 Phase 目前納入的 Case 為分母。
+- 每個 Rack 分頁新增同樣的 Outcome 圓餅圖與 Outcome summary table，可直接查看各 Rack 的 Passed／Failed／Blocked／Not Applicable 佔比與 Case 數量。
+- Overview 的 `PASS CASES / RATE` 與 `FAIL CASES (BLOCKED) / RATE` 改採每個 Case 最新 Test Result 的 Passed／Failed Outcome；rate 分母為最新 Passed + Failed cases，不再使用 Work Item State 的 Closed／Blocked 來計算。Test Result 尚在背景載入時顯示 `…`，避免誤報 0%。
+- 共用百分比格式統一使用 `D.percent()`：最多一位小數（例如 `80.3%`），整數不顯示多餘的 `.0`，零值顯示 `0%`；Outcome chart、table 與 tooltip 均套用同一格式。
+- `node --check`、`git diff --check`、Extension `npm run package`（TypeScript、esbuild、VSIX）與本機 fixture 的 Overview／Rack Outcome UI 驗證通過。userscript v1.12.20：208,132 bytes，SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638`；Extension v1.3.20 VSIX：66,348 bytes，SHA-256 `722B055886A322BFF48318BB7E7CE5F7E1DD8DA81194ED38B3C44690777B8B22`。
+- 未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Result；正式 live ADO 仍需在登入頁按 **Re-run query** 確認最新 Outcome 數量。
