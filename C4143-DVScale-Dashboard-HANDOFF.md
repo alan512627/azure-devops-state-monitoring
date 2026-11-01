@@ -5,8 +5,8 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.13，工作分支已發布，待合併 `main`） |
-| 最新腳本大小 | 196,259 bytes；SHA-256 `5671F345114BAEC56B0BFB8E7F4DBB1633E869E71B64F649B12BEAAAAAA7B25F` |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.15，本分支待合併 `main`） |
+| 最新腳本大小 | 203,804 bytes；SHA-256 `B2EEEFE4F20CB882715461185D744176C3EF6C401B4E204047EB3EA65E4BDCD4` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
 > 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為移除 Case title 篩選，第 38 節為單一 FPGA teardown Case 排除，第 39 節修正其跨 Phase 的 title 格式差異，第 40 節為 dashboard 資訊精簡與固定時間軸，第 41 節為百分比格式統一，第 42 節為移除 Number_of_cycles 統計。前面章節中的「未完成」為當時狀態，最新狀態以第 42 節為準。
@@ -1193,3 +1193,11 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - Re-query 完成提示新增 `Load timing: core Xs, supplemental Ys`，分別表示主 Query／hierarchy 到核心畫面 ready，以及 Bug History／Test Results 背景補載完成的時間。這是觀測資訊，不會改變統計或判定。
 - `node --check`、`git diff --check` 與 Extension package 通過；正式秒數仍需在登入的 Azure DevOps live query 執行一次 Re-run 讀取提示。未修改 Azure DevOps 組織或 Work Item。
 - userscript v1.12.13：202,114 bytes，SHA-256 `15DD7D6A2DC260D8D132B557AAD7FAF5B45464DBDE3EE62928F84FBFE59FB58E`。Extension v1.3.13 VSIX 為 65,171 bytes，SHA-256 `ACD260E5ED085AA9FF4B63DA6E64924BC8603B8B152954D01AA1B67034455ED9`。
+
+## 45. 2026-11-01 恢復 Insights Test Runs 與 Phase 1 時間軸（v1.12.15）
+
+- Insights 恢復唯讀的 `Azure DevOps Test Runs / Test Plans` 明細表，列出 Run、Test Plan、State、Started、Completed、Results 與 API Status；資料仍由背景 Test Runs 補載，不改寫 Azure DevOps。
+- Phase 1 Execution Timeline 在資料最晚日期早於 2026-11-13 時，時間軸上限至少延伸至 `2026-11-13 23:59:59Z`，因此右側可捲動區域多出兩天；若資料本身更晚，仍以資料最晚時間為準。
+- 最早日期 bar 會向右內縮約 0.8% 的時間軸寬度，避免貼住左側分格線；bar 寬度同步縮放且不會越過右邊界。
+- 本版只移除 Overview／Rack 的「Test Case completion by Priority」統計區塊；Case／Bug priority 欄位、Insights／Test Features／匯出欄位與 Bug Priority/Severity 統計仍保留。
+- `node --check C4143-DVScale-Dashboard.user.js`、`git diff --check` 與 Extension package 應在發布前重新執行；本 PR 不修改 Azure DevOps 組織或 Work Item。
