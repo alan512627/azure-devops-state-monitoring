@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.13
+// @version      1.12.15
 // @description  Uses one-decimal maximum percentage formatting, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -1339,6 +1339,18 @@
     changesBox.appendChild(D.changeDetails('State changed', comparison.stateChanged || [], 'state'));
     changesBox.appendChild(D.changeDetails('Added', comparison.added || [], 'added')); changesBox.appendChild(D.changeDetails('Removed', comparison.removed || [], 'removed'));
     resultGrid.appendChild(resultBox); resultGrid.appendChild(changesBox); wrap.appendChild(resultGrid);
+    var runsBox = D.box('Azure DevOps Test Runs / Test Plans — Last ' + D.CFG.testResultDays + ' days');
+    runsBox.appendChild(D.el('div', 'small', (test.testPlans || []).length + ' Test Plan(s) · ' + (test.runs || []).length + ' Test Run(s) · Results are loaded read-only from Azure DevOps.'));
+    var runScroll = D.el('div', 'table-scroll'), runTable = D.el('table'), runHead = D.el('thead'), runHeadRow = D.el('tr');
+    ['Run', 'Test Plan', 'State', 'Started', 'Completed', 'Results', 'API Status'].forEach(function (label) { runHeadRow.appendChild(D.el('th', null, label)); });
+    runHead.appendChild(runHeadRow); runTable.appendChild(runHead);
+    var runBody = D.el('tbody'), runs = test.runs || [];
+    if (!runs.length) { var emptyRun = D.el('tr'), emptyCell = D.el('td', 'empty', test.status === 'error' ? 'Test Runs unavailable: ' + (test.error || 'unknown error') : 'No Test Runs found in the selected lookback.'); emptyCell.colSpan = 7; emptyRun.appendChild(emptyCell); runBody.appendChild(emptyRun); }
+    runs.forEach(function (run) {
+      var row = D.el('tr'), runCell = D.el('td'), runLink = D.el('a', null, '#' + run.id + ' · ' + run.name); runLink.href = run.url; runLink.target = '_blank'; runLink.rel = 'noopener'; runCell.appendChild(runLink); row.appendChild(runCell);
+      row.appendChild(D.el('td', null, run.planName || run.planId || '-')); row.appendChild(D.el('td', null, run.state || '-')); row.appendChild(D.el('td', null, D.fmt(run.startedDate))); row.appendChild(D.el('td', null, D.fmt(run.completedDate))); row.appendChild(D.el('td', 'num', String(run.resultCount || 0))); row.appendChild(D.el('td', null, run.error || 'Loaded')); runBody.appendChild(row);
+    });
+    runTable.appendChild(runBody); runScroll.appendChild(runTable); runsBox.appendChild(runScroll); wrap.appendChild(runsBox);
     return wrap;
   };
   D.CSS = "*{box-sizing:border-box}\nbody{margin:0;font-family:\"Segoe UI\",Roboto,\"Noto Sans TC\",\"Microsoft JhengHei\",sans-serif;background:#0b1220;color:#e2e8f0;font-size:14px}\na{color:#7dd3fc;text-decoration:none}a:hover{text-decoration:underline}\nheader{padding:14px 20px;background:linear-gradient(90deg,#132039,#0d1729);border-bottom:1px solid #1e2b45;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}\nh1{font-size:18px;margin:0 0 4px}\n.sub{font-size:12px;color:#8fa3c0}\n.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 20px;background:#0e1830;border-bottom:1px solid #1e2b45;position:sticky;top:0;z-index:20}\n.controls label{font-size:12px;color:#9fb3d0;display:flex;gap:6px;align-items:center}\nselect,button,input{background:#16243d;color:#e2e8f0;border:1px solid #27395c;border-radius:6px;padding:6px 10px;font-size:13px;font-family:inherit}\nbutton{cursor:pointer}button:hover{background:#1e3a5f}\nbutton.primary{background:#2563eb;border-color:#2563eb}button.primary:hover{background:#1d4ed8}\n.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:10px 20px 0}\n.tab{padding:8px 16px;border-radius:8px 8px 0 0;background:#111d33;border:1px solid #1e2b45;border-bottom:none;color:#9fb3d0;cursor:pointer;font-size:13px}\n.tab.active{background:#16243d;color:#fff;font-weight:600;box-shadow:inset 0 3px 0 #38bdf8}\n.panel{display:none;padding:16px 20px 60px}.panel.active{display:block}\n.cards{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;align-items:center}\n.card{background:#111d33;border:1px solid #1e2b45;border-radius:10px;padding:10px 16px;min-width:110px}\n.card .k{font-size:10px;color:#8fa3c0;letter-spacing:.05em}\n.card .v{font-size:22px;font-weight:700;margin-top:2px}\n.grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(320px,1.15fr);gap:14px;margin-bottom:16px}\n@media(max-width:980px){.grid{grid-template-columns:1fr}}\n.box{background:#111d33;border:1px solid #1e2b45;border-radius:10px;padding:14px}\n.box h3{margin:0 0 10px;font-size:12px;color:#cbd8ea;letter-spacing:.05em;text-transform:uppercase}\n.chartwrap{height:300px}\n.legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;justify-content:center}\ntable{width:100%;border-collapse:collapse;font-size:13px}\nth,td{text-align:left;padding:6px 8px;border-bottom:1px solid #1c2942}\nth{color:#8fa3c0;font-size:10px;text-transform:uppercase;letter-spacing:.05em}\ntr.total td{font-weight:700;border-top:2px solid #27395c;border-bottom:none}\ntd.num,th.num{text-align:right;font-variant-numeric:tabular-nums}\n.chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;color:#0b1220}\n.bar{height:8px;border-radius:4px;background:#1c2942;overflow:hidden;display:flex;min-width:70px}\ndetails.node{border:1px solid #1c2942;border-radius:8px;margin:6px 0;background:#0f1a2e}\ndetails.node[open]{background:#101d33}\ndetails.node>summary{cursor:pointer;padding:8px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;list-style:none}\ndetails.node>summary::-webkit-details-marker{display:none}\ndetails.node>summary:before{content:\"\\25B8\";color:#5b7ba6;font-size:12px;transition:transform .15s}\ndetails.node[open]>summary:before{transform:rotate(90deg)}\ndetails.node>summary:hover{background:#152341}\n.nodebody{padding:2px 10px 10px 24px}\n.ntitle{font-weight:600}\n.lvl1>summary>.ntitle{color:#f0f6ff;font-size:14px}\n.lvl2>summary>.ntitle{color:#cfe3ff;font-size:13px}\n.lvl3>summary>.ntitle{color:#b7cdea;font-size:12.5px;font-weight:500}\n.type{font-size:10px;color:#7d93b3;border:1px solid #27395c;border-radius:4px;padding:1px 5px}\n.spacer{flex:1}\n.caserow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px dashed #1c2942;font-size:13px}\n.caserow:hover{background:#152341}\n.caseid{font-family:Consolas,monospace;font-size:12px;color:#7dd3fc;min-width:64px}\n.casetitle{flex:1;min-width:200px;color:#d7e3f4}\n.date{font-size:11px;color:#7d93b3;font-variant-numeric:tabular-nums}\n.banner{margin:10px 20px;padding:10px 14px;border-radius:8px;font-size:13px;border:1px solid}\n.banner.info{background:#10233d;border-color:#27507f;color:#bcd9ff}\n.banner.warn{background:#3a2a10;border-color:#7a5a1c;color:#ffd9a0}\n.banner.err{background:#3a1620;border-color:#7f2740;color:#ffc2cf}\n.hide{display:none!important}\n.small{font-size:11px;color:#8fa3c0}\n.empty{padding:14px;text-align:center;color:#8fa3c0;font-size:13px}";
@@ -1502,6 +1514,7 @@
       if (start == null && end == null) return;
       var point = start != null ? start : end, finish = end != null ? end : point, invalid = finish < point;
       var low = Math.min(point, finish), high = Math.max(point, finish), left = (low - min) * 100 / span, width = (high - low) * 100 / span;
+      if (Math.abs(low - min) < 1000) { left += .8; width = Math.max(0, width - .8); }
       var bar = D.el('div', 'timeline-bar ' + kind + (invalid ? ' invalid' : '') + (width < .65 ? ' point' : ''));
       bar.style.left = Math.max(0, Math.min(100, left)) + '%'; bar.style.width = Math.max(.65, Math.min(100 - left, width)) + '%'; bar.title = title; track.appendChild(bar);
     }
@@ -1527,7 +1540,9 @@
       var values = [];
       dated.forEach(function (row) { if (mode !== 'actual') values.push(row.info.estimateStart, row.info.estimateEnd); if (mode !== 'estimate') values.push(row.info.actualStart, row.info.actualEnd); }); values = values.filter(function (value) { return value != null; });
       if (!values.length) { host.appendChild(D.el('div', 'empty', 'No valid Execution dates are available for this filter.')); return; }
-      var min = Math.min.apply(Math, values), max = Math.max.apply(Math, values); if (max === min) max = min + 86400000; var span = max - min;
+      var min = Math.min.apply(Math, values), max = Math.max.apply(Math, values);
+      if (D.S.phase === 'phase1') max = Math.max(max, new Date('2026-11-13T23:59:59Z').getTime());
+      if (max === min) max = min + 86400000; var span = max - min;
       var days = Math.max(1, Math.ceil(span / 86400000)), trackWidth = Math.max(760, Math.min(2600, days * 22));
       var scroll = D.el('div', 'timeline-scroll'), canvas = D.el('div', 'timeline-canvas'); canvas.style.setProperty('--timeline-track-width', trackWidth + 'px');
       var header = D.el('div', 'timeline-grid-row timeline-header'), headerLabel = D.el('div', 'timeline-label', 'Execution order · ' + dated.length + ' dated Case(s)'), axis = D.el('div', 'timeline-track timeline-axis'); header.appendChild(headerLabel); header.appendChild(axis);
@@ -2061,8 +2076,6 @@
         grid.appendChild(b1); grid.appendChild(b2); panel.appendChild(grid);
         var b3 = D.box('Rack × State summary table');
         refs.tableBox = D.el('div'); b3.appendChild(refs.tableBox); panel.appendChild(b3);
-        var bPriority = D.box('Test Case completion by Priority — Closed = completed');
-        refs.priorityBox = D.el('div'); bPriority.appendChild(refs.priorityBox); panel.appendChild(bPriority);
         var b4 = D.box('Bug tracking — verified Test Case Child links');
         refs.bugRackBox = D.el('div'); b4.appendChild(refs.bugRackBox);
         refs.bugStatsBox = D.el('div'); b4.appendChild(refs.bugStatsBox);
@@ -2081,8 +2094,6 @@
         var rb2 = D.box('State summary table');
         refs.tableBox = D.el('div'); rb2.appendChild(refs.tableBox);
         g.appendChild(rb1); g.appendChild(rb2); panel.appendChild(g);
-        var rbPriority = D.box('Test Case completion by Priority — Closed = completed');
-        refs.priorityBox = D.el('div'); rbPriority.appendChild(refs.priorityBox); panel.appendChild(rbPriority);
         var rbBugs = D.box(def.rack.label + ' Bug list — verified Test Case Child links');
         refs.bugSummaryBox = D.el('div', 'rack-bug-reconcile'); rbBugs.appendChild(refs.bugSummaryBox);
         refs.bugBox = D.el('div', 'bug-detail-scroll'); rbBugs.appendChild(refs.bugBox); panel.appendChild(rbBugs);
@@ -2142,7 +2153,6 @@
         p.cProgress._val.textContent = outcomes.inProgress;
         p.cBugs._val.textContent = linkedBugs.length + ' / ' + bugCases.length;
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.rackTable(phaseRacks));
-        p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(f));
         p.bugRackBox.innerHTML = ''; p.bugRackBox.appendChild(D.bugRackStats(bugInventory, phaseRacks));
         p.bugStatsBox.innerHTML = ''; p.bugStatsBox.appendChild(D.bugStats(allCases, bugInventory));
         p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable(phaseRacks, bugInventory));
@@ -2163,7 +2173,6 @@
         p.cBugs._val.textContent = rackBugEntries.length;
         var c2 = D.countStates(fc);
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.statsTable(c2));
-        p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(fc));
         p.bugSummaryBox.textContent = 'Reconciled with Overview ' + p.rack.label + ': ' + rackBugEntries.length + ' unique Bugs · ' + rackOnlyBugs + ' Rack-only · ' + (rackBugEntries.length - rackOnlyBugs) + ' shared across Racks.';
         p.bugSummaryBox.setAttribute('data-rack-bug-count', rackBugEntries.length);
         p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable([p.rack], bugInventory));
