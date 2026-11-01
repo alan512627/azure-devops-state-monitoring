@@ -4,7 +4,7 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.20；本分支待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.22；本分支待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
@@ -99,7 +99,7 @@ v1.8.6 移除所有固定 Expected Case 數量與 Coverage warning。Case 新增
 
 v1.9.0 新增左側 `Insights` 分頁：
 
-- **真實 Pass／Fail**：讀取最近 28 天的 Test Runs、Test Results 與 Test Plans。每個 Case 只取最新結果，Pass／Fail Rate 的分母只包含 `Passed` 與失敗類 Outcome；沒有 Test Result 的 Case 會分開顯示，不會誤當 Fail。
+- **真實 Pass／Fail**：每個 Case 的主要 outcome 以 Azure DevOps Test Plans「Execute」頁的 Test Point outcome 為準（由 Test Plan root suite 遞迴讀取並以 Case ID 對應）；只呈現 `Passed`、`Failed`、`Blocked`、`Not Applicable`、`Active` 五種固定分類，分別使用綠、紅、橘、黃、靛色。Test Runs／Results 僅保留作 Insights 的執行清單與補充資料。Pass／Fail Rate 的分母只包含 Test Point 的 `Passed` 與 `Failed`。
 - **快速 Re-query**：核心 Query、Rack、Case 與狀態先完成並呈現 Overview／Rack；Child Bug History 驗證與 Test Runs／Results 會在背景補載，完成後只更新相關統計。Core Work Item、Relation 與 Child Work Item 批次採有限並行，避免循序等待又不造成無限制 API 壓力。背景完成前的卡片不會被當作最終 Bug／Test Result 統計。
 - **Test Runs 明細**：Insights 重新顯示唯讀 Test Runs／Test Plans 明細表；Phase 1 Execution Timeline 在資料較早結束時至少延伸至 2026-11-13，最早日期 bar 與左側分格線保留小間距。
 - **Re-query timing**：完成後的提示會回報 core 與 supplemental 的秒數，方便區分主查詢與背景驗證的實際延遲。
