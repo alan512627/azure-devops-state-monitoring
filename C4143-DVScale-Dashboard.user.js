@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.7
-// @description  Excludes one configured FPGA teardown Case while retaining all other valid-Phase Cases and title review.
+// @version      1.12.8
+// @description  Excludes the configured FPGA teardown Case across all Racks and Phases despite title formatting differences.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -131,9 +131,9 @@
     'show manager / powershelf / system info looping test for 500x cycles',
     'R-SCM command to perform various set operations'
   ];
-  D.EXCLUDED_CASE_TITLES = {
-    '[System][Functionality] Dynamically Reconfig Glacier Peak / Castle Peak FPGA image (full link teardown)': 'EXCLUDED BY CONFIGURED SCOPE'
-  };
+  D.EXCLUDED_CASE_TITLES = [
+    '[System][Functionality] Dynamically Reconfig Glacier Peak / Castle Peak FPGA image (full link teardown)'
+  ];
   D.S = {racks:[],loadedAt:null,range:"all",chartType:"pie",panels:[],active:0,phase:"phase1",mode:"live",queries:[],activeQueryKey:'',testResults:{status:"idle",runs:[]},snapshotComparison:null};
   D.el = function (t, c, x) { var e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
   D.queryKey = function (query) { return [query.orgName, query.project, query.queryId].join('|').toLowerCase(); };
@@ -626,7 +626,13 @@
     return { inPlacement: true, phase: phase, reason: 'PLACED', expected: expectedPhaseTag };
   };
   D.excludedCaseReason = function (testCase) {
-    return D.EXCLUDED_CASE_TITLES[String(testCase && testCase.title || '')] || '';
+    var actual = D.exclusionTitleKey(testCase && testCase.title);
+    return D.EXCLUDED_CASE_TITLES.some(function (title) { return D.exclusionTitleKey(title) === actual; }) ? 'EXCLUDED BY CONFIGURED SCOPE' : '';
+  };
+  D.exclusionTitleKey = function (value) {
+    var text = String(value || '');
+    if (text.normalize) text = text.normalize('NFKC');
+    return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
   };
   D.caseIsIncluded = function (testCase, placement) {
     placement = placement || D.placementMatch(testCase);

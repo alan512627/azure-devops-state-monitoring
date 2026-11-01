@@ -4,7 +4,7 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.7；工作分支已發布，待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.8；工作分支已發布，待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
@@ -35,7 +35,7 @@ v1.11.0 在同一個 Query Dashboard 上方新增 **Phase 1** 與 **Phase 2** �
 - Test Case 的 Tags 必須包含完整的 `C4143_ScaleTest_Phase1` 或 `C4143_ScaleTest_Phase2`（比對時忽略大小寫、空白、`-` 與 `_`）才會進入對應 Phase；缺少、同時含有兩個，或只是相似名稱的 Phase Tag 都不納入統計。
 - Rack 歸屬只由 Azure DevOps hierarchy 中最外層 Rack Feature 的 title 擷取（例如 `[C4143][DV][Scale] Rack #1 - 11.3 HH Config` → Rack 1）；該 Feature 之下所有 System Requirement 與 Test Case 都屬於該 Rack。`Rack01`～`Rack05` Case tag 不再用來放置或排除 Case。
 - 分流後 Phase 1／Phase 2 各只顯示自己的一組 Rack 1～5，不會在同一 Phase 重複列出十個 Rack。
-- 所有位於 Rack Feature hierarchy 之下、且具有有效 Phase tag 的 Test Case 都會納入卡片、圖表、Bug、Test Result、快照差異與匯出；Case title 不再是一般篩選條件。唯一設定的例外是 `[System][Functionality] Dynamically Reconfig Glacier Peak / Castle Peak FPGA image (full link teardown)`，它會在每個 Rack／Phase 排除。
+- 所有位於 Rack Feature hierarchy 之下、且具有有效 Phase tag 的 Test Case 都會納入卡片、圖表、Bug、Test Result、快照差異與匯出；Case title 不再是一般篩選條件。唯一設定的例外是 `[System][Functionality] Dynamically Reconfig Glacier Peak / Castle Peak FPGA image (full link teardown)`；此項目會在每個 Rack／Phase 排除，且比對忽略大小寫、空白與標點格式差異。
 - Overview 與各 Rack 都有 **EXCLUDED CASES** 卡片和可展開的 Case exclusion audit，逐筆顯示 Rack Feature、Case ID、Reason、目前 Title、Case Tags、預期 Phase Tag／scope 與 State。`PHASE TAG MISSING OR CONFLICT` 及明確設定的 scope exclusion 都會排除 Case。
 - 若任一 Rack 超過舊有 41 項參考清單，Overview 與該 Rack 會顯示 **Additional Case title review**，列出沒有逐字對上參考清單的 Case ID、title、state 與 Phase tag。這是人工決策清單，不會自動排除任何 Case。
 - 兩個 Phase 各自建立 Overview、Rack 1～5、Insights 與 Test Features；State、Closed／Blocked Rate、最新 Test Result Outcome、Priority、Sample Size、Number of Cycles、Duration、Bug 與 Rack 統計互不混用。
