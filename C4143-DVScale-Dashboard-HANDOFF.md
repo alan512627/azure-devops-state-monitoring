@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.22，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.23，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1253,3 +1253,9 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 固定顏色：Passed 綠色、Failed 紅色、Blocked 橘紅色、Not Applicable 黃色、Active 靛藍色；Overview、Rack summary、圓餅圖、長條圖、legend、Case badge 與 Insights 統一使用同一組顏色。
 - Pass／Fail rate 仍只以 Passed + Failed 為分母，Blocked、Not Applicable、Active 不會被誤算為 Pass 或 Fail。
 - PR #29 以包含 PR #28 Test Point outcome 來源修改的 commit 為基礎；未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point。
+
+## 53. 2026-11-01 修正 Test Point 結果讀取並將 Overview outcome 長條圖分 Rack（v1.12.23）
+
+- Azure DevOps Test Point API 的 `results` 是單一 `TestPointResults` 物件，不是陣列；改為直接讀取 `results.outcome`，因此 Execute 畫面中的 Passed／Failed／Active 可以正確對應到 Case。
+- Overview 的 `Test Point Outcome counts — by Rack` 改為 Rack 1～5 的堆疊長條圖，每個 Rack 顯示五種 outcome 的分段與總數；Rack 分頁仍顯示自己的圓餅圖與明細表。
+- 官方 Test Point endpoint 的 `testCaseReference`、`results.outcome` 與遞迴 suite 讀取保持唯讀；未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point。

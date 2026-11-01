@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.22
-// @description  Uses five fixed Execute Test Point outcomes with distinct colors, compact metrics, and staged background supplemental loading.
+// @version      1.12.23
+// @description  Uses five fixed Execute Test Point outcomes by Rack with distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -605,22 +605,22 @@
     var response = await D.apiFetch(url);
     return response.value || [];
   };
-  D.testPointOutcome = function (point) {
-    var results = Array.isArray(point && point.results) ? point.results.slice() : [];
+  D.testPointResultRecord = function (point) {
+    var raw = point && point.results;
+    if (raw && !Array.isArray(raw)) return raw;
+    var results = Array.isArray(raw) ? raw.slice() : [];
     results.sort(function (a, b) {
       return String(b.lastUpdatedDate || b.completedDate || b.dateCompleted || '').localeCompare(String(a.lastUpdatedDate || a.completedDate || a.dateCompleted || ''))
         || (+b.id || 0) - (+a.id || 0);
     });
-    var latest = results[0] || point && point.result || null;
+    return results[0] || point && point.result || null;
+  };
+  D.testPointOutcome = function (point) {
+    var latest = D.testPointResultRecord(point);
     return String((latest && latest.outcome) || (point && point.outcome) || (point && point.state) || '').trim();
   };
   D.testPointDate = function (point) {
-    var results = Array.isArray(point && point.results) ? point.results.slice() : [];
-    results.sort(function (a, b) {
-      return String(b.lastUpdatedDate || b.completedDate || b.dateCompleted || '').localeCompare(String(a.lastUpdatedDate || a.completedDate || a.dateCompleted || ''))
-        || (+b.id || 0) - (+a.id || 0);
-    });
-    var latest = results[0] || point && point.result || null;
+    var latest = D.testPointResultRecord(point);
     return (latest && (latest.lastUpdatedDate || latest.completedDate || latest.dateCompleted)) || point && (point.lastUpdatedDate || point.updatedDate) || '';
   };
   D.testPointUrl = function (point) {
@@ -1248,7 +1248,8 @@
     });
     return s;
   };
-  D.stacked = function (labels, perRack, states) {
+  D.stacked = function (labels, perRack, states, colorFn) {
+    colorFn = colorFn || D.colorFor;
     var W = 460, H = 300, L = 40, B = 40, T = 14, Rp = 12;
     var s = D.svg('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', height: '100%', preserveAspectRatio: 'xMidYMid meet' });
     var totals = perRack.map(function (m) { return D.sum(m); });
@@ -1266,7 +1267,7 @@
       states.forEach(function (st) {
         var v = perRack[i][st] || 0; if (!v) return;
         var h = ph * v / max, y = T + ph - ph * (acc + v) / max;
-        var rect = D.svg('rect', { x: x, y: y, width: bw, height: Math.max(h, 1), fill: D.colorFor(st) });
+        var rect = D.svg('rect', { x: x, y: y, width: bw, height: Math.max(h, 1), fill: colorFn(st) });
         var ti = D.svg('title'); ti.textContent = lab + ' · ' + st + ': ' + v; rect.appendChild(ti);
         s.appendChild(rect); acc += v;
       });
@@ -2162,7 +2163,7 @@
         var ob1 = D.box('Test Result Outcome distribution — all Racks');
         refs.outcomePieHost = D.el('div', 'chartwrap'); ob1.appendChild(refs.outcomePieHost);
         refs.outcomeLegendHost = D.el('div'); ob1.appendChild(refs.outcomeLegendHost);
-        var ob2 = D.box('Test Result Outcome counts — all Racks');
+        var ob2 = D.box('Test Point Outcome counts — by Rack');
         refs.outcomeBarHost = D.el('div', 'chartwrap'); ob2.appendChild(refs.outcomeBarHost);
         outcomeGrid.appendChild(ob1); outcomeGrid.appendChild(ob2); panel.appendChild(outcomeGrid);
         var b3 = D.box('Rack × State summary table');
@@ -2267,7 +2268,8 @@
         var outcomeCounts = resultOutcomes.counts;
         var outcomeChartCounts = resultReady ? outcomeCounts : { Active: f.length };
         p.outcomePieHost.innerHTML = ''; p.outcomePieHost.appendChild(D.pie(outcomeChartCounts, D.orderOutcomes, D.outcomeColor));
-        p.outcomeBarHost.innerHTML = ''; p.outcomeBarHost.appendChild(D.bar(outcomeChartCounts, D.orderOutcomes, D.outcomeColor));
+        var outcomePerRack = phaseRacks.map(function (rack) { return D.resultOutcomeCounts(D.collect(rack, 'Test Case').filter(D.inRange)); });
+        p.outcomeBarHost.innerHTML = ''; p.outcomeBarHost.appendChild(D.stacked(phaseRacks.map(function (rack) { return rack.label; }), outcomePerRack, D.OUTCOME_ORDER, D.outcomeColor));
         p.outcomeLegendHost.innerHTML = ''; p.outcomeLegendHost.appendChild(D.legend(outcomeChartCounts, D.orderOutcomes, D.outcomeColor));
       } else if (p.kind === 'rack') {
         var cs = D.collect(p.rack, 'Test Case'), fc = cs.filter(D.inRange);
