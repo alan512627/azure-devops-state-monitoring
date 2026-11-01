@@ -5,8 +5,8 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.15，本分支待合併 `main`） |
-| 最新腳本大小 | 203,804 bytes；SHA-256 `B2EEEFE4F20CB882715461185D744176C3EF6C401B4E204047EB3EA65E4BDCD4` |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.16，本分支待合併 `main`） |
+| 最新腳本大小 | 202,541 bytes；SHA-256 `167E3A6DB74AEBD8F37887C751D153AABF4A9DF7758F7BF0ED67F7127E7FA53B` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
 > 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為移除 Case title 篩選，第 38 節為單一 FPGA teardown Case 排除，第 39 節修正其跨 Phase 的 title 格式差異，第 40 節為 dashboard 資訊精簡與固定時間軸，第 41 節為百分比格式統一，第 42 節為移除 Number_of_cycles 統計。前面章節中的「未完成」為當時狀態，最新狀態以第 42 節為準。
@@ -1201,3 +1201,10 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 最早日期 bar 會向右內縮約 0.8% 的時間軸寬度，避免貼住左側分格線；bar 寬度同步縮放且不會越過右邊界。
 - 本版只移除 Overview／Rack 的「Test Case completion by Priority」統計區塊；Case／Bug priority 欄位、Insights／Test Features／匯出欄位與 Bug Priority/Severity 統計仍保留。
 - `node --check C4143-DVScale-Dashboard.user.js`、`git diff --check` 與 Extension package 應在發布前重新執行；本 PR 不修改 Azure DevOps 組織或 Work Item。
+
+## 46. 2026-11-01 Timeline 尺度與 Phase Test Runs refresh（v1.12.16）
+
+- Phase 1 Execution Timeline 的軸上限由 2026-11-13 改為至少 2026-11-11；若實際資料晚於該日期，仍保留資料本身的最晚日期。
+- 時間軸每一天的顯示寬度提高至 30px（上限 3200px），日期 bar 仍使用同一個 date-to-percentage span，因此會隨日期比例同步放大；第一個日期刻度、背景分格線與最早 bar 共用約 0.8% 的右側內縮。
+- Insights 的 Test Runs / Test Plans 表格改回使用共用 `D.testRunsTable()`，並在每次 supplemental Test Result 載入完成後重新 render；因此 Phase 1／Phase 2 各自切換後都會顯示該 phase 的 Test Run 清單，不會停留在初始空表。
+- `node --check`、`git diff --check`、Extension `npm run package` 與 fixture UI 應重新驗證；未修改 Azure DevOps 組織或 Work Item。
