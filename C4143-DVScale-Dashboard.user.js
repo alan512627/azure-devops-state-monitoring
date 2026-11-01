@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.6
-// @description  Includes every valid-Phase Test Case and reviews non-reference titles only when a Rack exceeds 41 Cases.
+// @version      1.12.7
+// @description  Excludes one configured FPGA teardown Case while retaining all other valid-Phase Cases and title review.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -131,6 +131,9 @@
     'show manager / powershelf / system info looping test for 500x cycles',
     'R-SCM command to perform various set operations'
   ];
+  D.EXCLUDED_CASE_TITLES = {
+    '[System][Functionality] Dynamically Reconfig Glacier Peak / Castle Peak FPGA image (full link teardown)': 'EXCLUDED BY CONFIGURED SCOPE'
+  };
   D.S = {racks:[],loadedAt:null,range:"all",chartType:"pie",panels:[],active:0,phase:"phase1",mode:"live",queries:[],activeQueryKey:'',testResults:{status:"idle",runs:[]},snapshotComparison:null};
   D.el = function (t, c, x) { var e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
   D.queryKey = function (query) { return [query.orgName, query.project, query.queryId].join('|').toLowerCase(); };
@@ -359,7 +362,7 @@
     var linkedIdsOf = {}, linkedMetaOf = {}, linkedRelationsById = {}, linkedFetchIds = [], linkedSeen = {};
     try {
       var testCaseIds = items.filter(function (it) {
-        return it.fields && it.fields['System.WorkItemType'] === 'Test Case';
+        return it.fields && it.fields['System.WorkItemType'] === 'Test Case' && !D.excludedCaseReason({ title: it.fields['System.Title'] });
       }).map(function (it) { return it.id; });
       for (var j = 0; j < testCaseIds.length; j += 200) {
         var relationBatch = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
@@ -622,9 +625,16 @@
     if (!phase) return { inPlacement: false, phase: '', reason: 'PHASE TAG MISSING OR CONFLICT', expected: expectedPhaseTag };
     return { inPlacement: true, phase: phase, reason: 'PLACED', expected: expectedPhaseTag };
   };
+  D.excludedCaseReason = function (testCase) {
+    return D.EXCLUDED_CASE_TITLES[String(testCase && testCase.title || '')] || '';
+  };
+  D.caseIsIncluded = function (testCase, placement) {
+    placement = placement || D.placementMatch(testCase);
+    return placement.inPlacement && !D.excludedCaseReason(testCase);
+  };
   D.filterNodeForPhase = function (node, phase, keepRoot) {
     if (!node) return null;
-    if (node.type === 'Test Case') { var placement = D.placementMatch(node); return placement.inPlacement && placement.phase === phase ? node : null; }
+    if (node.type === 'Test Case') { var placement = D.placementMatch(node); return D.caseIsIncluded(node, placement) && placement.phase === phase ? node : null; }
     var children = (node.children || []).map(function (child) { return D.filterNodeForPhase(child, phase, false); }).filter(Boolean);
     if (!keepRoot && !children.length) return null;
     var clone = Object.assign({}, node); clone.children = children; return clone;
@@ -637,7 +647,7 @@
   };
   D.phaseCounts = function () {
     var counts = { phase1: 0, phase2: 0 };
-    (D.S.racks || []).forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (testCase) { var placement = D.placementMatch(testCase); if (placement.inPlacement) counts[placement.phase]++; }); });
+    (D.S.racks || []).forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (testCase) { var placement = D.placementMatch(testCase); if (D.caseIsIncluded(testCase, placement)) counts[placement.phase]++; }); });
     return counts;
   };
   D.rackConsistency = function () {
@@ -680,15 +690,16 @@
     (D.S.racks || []).forEach(function (rawRack) {
       if (rack && String(rawRack.id || rawRack.label) !== String(rack.id || rack.label)) return;
       D.collect(rawRack, 'Test Case').forEach(function (testCase) {
-        var placement = D.placementMatch(testCase);
+        var placement = D.placementMatch(testCase), exclusionReason = D.excludedCaseReason(testCase);
         if (placement.phase && placement.phase !== phase) return;
-        var match = placement.inPlacement ? { inScope: true, reason: 'INCLUDED' } : { inScope: false, reason: placement.reason, expectedTitle: placement.expected }, entry = { testCase: testCase, rack: rawRack, match: match, placement: placement };
+        var match = placement.inPlacement && !exclusionReason ? { inScope: true, reason: 'INCLUDED' } : { inScope: false, reason: exclusionReason || placement.reason, expectedTitle: exclusionReason || placement.expected }, entry = { testCase: testCase, rack: rawRack, match: match, placement: placement };
         (match.inScope ? included : excluded).push(entry);
       });
     });
     return {
       included: included, excluded: excluded,
-      phaseTagErrors: excluded.filter(function (entry) { return entry.placement && !entry.placement.inPlacement; })
+      phaseTagErrors: excluded.filter(function (entry) { return entry.placement && !entry.placement.inPlacement; }),
+      configuredExclusions: excluded.filter(function (entry) { return entry.match.reason === 'EXCLUDED BY CONFIGURED SCOPE'; })
     };
   };
   D.allScopedCases = function () {
@@ -1303,15 +1314,15 @@
     var stats = D.scopeStats(phase, rack), wrap = D.el('div', 'scope-audit');
     wrap.setAttribute('data-scope-included', stats.included.length);
     wrap.setAttribute('data-scope-excluded', stats.excluded.length);
-    wrap.appendChild(D.el('p', 'scope-audit-summary', 'Every Test Case under a Rack Feature hierarchy is included regardless of its title when it has the exact C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2 tag. Rack is derived only from the enclosing Rack Feature title; Rack01-Rack05 Case tags are not used for placement. All statistics, charts, Bugs, Test Result mapping, snapshots, and exports use those Cases.'));
+    wrap.appendChild(D.el('p', 'scope-audit-summary', 'Every Test Case under a Rack Feature hierarchy is included regardless of its title when it has the exact C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2 tag, except the explicitly configured FPGA teardown Case. Rack is derived only from the enclosing Rack Feature title; Rack01-Rack05 Case tags are not used for placement. All statistics, charts, Bugs, Test Result mapping, snapshots, and exports use the included Cases.'));
     if (!stats.excluded.length) {
-      wrap.appendChild(D.el('div', 'scope-audit-ok', 'No Test Cases have missing or conflicted Phase tags in this view.'));
+      wrap.appendChild(D.el('div', 'scope-audit-ok', 'No Test Cases are excluded by Phase tags or the configured scope in this view.'));
       return wrap;
     }
-    var details = D.el('details', 'scope-audit-details'), summary = D.el('summary', null, stats.excluded.length + ' Test Case' + (stats.excluded.length === 1 ? '' : 's') + ' excluded: ' + stats.phaseTagErrors.length + ' Phase tag issue');
+    var details = D.el('details', 'scope-audit-details'), summary = D.el('summary', null, stats.excluded.length + ' Test Case' + (stats.excluded.length === 1 ? '' : 's') + ' excluded: ' + stats.phaseTagErrors.length + ' Phase tag issue / ' + stats.configuredExclusions.length + ' configured scope exclusion');
     details.appendChild(summary);
     var scroll = D.el('div', 'table-scroll'), table = D.el('table'), head = D.el('thead'), headRow = D.el('tr');
-    ['Rack Feature', 'Case', 'Reason', 'Current title', 'Case tags', 'Expected Phase tag', 'State'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
+    ['Rack Feature', 'Case', 'Reason', 'Current title', 'Case tags', 'Expected Phase tag / scope', 'State'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
     head.appendChild(headRow); table.appendChild(head);
     var body = D.el('tbody');
     stats.excluded.sort(function (a, b) { return (a.rack.num || 999) - (b.rack.num || 999) || String(a.testCase.title).localeCompare(String(b.testCase.title)); }).forEach(function (entry) {
@@ -1972,15 +1983,15 @@
         refs.cFail = D.card('FAIL CASES (BLOCKED) / RATE', '-', '#fb7185');
         refs.cProgress = D.card('IN PROGRESS CASES', 0, '#818cf8');
         refs.cBugs = D.card('BUGS / AFFECTED CASES', '-', '#fb923c');
-        refs.cExcluded = D.card('PHASE TAG ISSUES', 0, '#f5b544');
+        refs.cExcluded = D.card('EXCLUDED CASES', 0, '#f5b544');
         refs.cPass.title = 'Closed Test Cases are counted as Pass. Rate denominator: Test Cases in the selected time range.';
         refs.cFail.title = 'Blocked Test Cases are counted as Fail. Rate denominator: Test Cases in the selected time range.';
         refs.cProgress.title = 'Test Cases whose current Azure DevOps State is In Progress.';
         refs.cBugs.title = 'Unique Bugs / affected Test Cases after Child link, reciprocal Parent, and Case History validation.';
-        refs.cExcluded.title = 'Query Test Cases excluded only because their Phase tag is missing or conflicted. Case titles do not affect inclusion.';
+        refs.cExcluded.title = 'Query Test Cases excluded for a missing/conflicted Phase tag or an explicit configured scope exclusion.';
         [refs.cRacks, refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs, refs.cExcluded].forEach(function (c) { cards.appendChild(c); });
         var stickyTop = D.el('div', 'panel-sticky'); stickyTop.appendChild(cards); panel.appendChild(stickyTop);
-        var scopeAudit = D.box('Phase tag audit — excluded from statistics'); refs.scopeBox = D.el('div'); scopeAudit.appendChild(refs.scopeBox); panel.appendChild(scopeAudit);
+        var scopeAudit = D.box('Case exclusion audit — excluded from statistics'); refs.scopeBox = D.el('div'); scopeAudit.appendChild(refs.scopeBox); panel.appendChild(scopeAudit);
         var titleReview = D.box('Additional Case title review — 41-item reference (not excluded)'); refs.titleReviewBox = D.el('div'); titleReview.appendChild(refs.titleReviewBox); panel.appendChild(titleReview);
         var consistencyAudit = D.box('Phase / Rack Case count consistency'); refs.consistencyBox = D.el('div'); consistencyAudit.appendChild(refs.consistencyBox); panel.appendChild(consistencyAudit);
         var grid = D.el('div', 'grid');
@@ -2006,12 +2017,12 @@
         refs.cCase = D.card('TEST CASES', '-', '#34d399');
         refs.cFiltered = D.card('UPDATED IN RANGE', 0, '#60a5fa');
         refs.cBugs = D.card('CHILD BUGS', 0, '#f87171');
-        refs.cExcluded = D.card('PHASE TAG ISSUES', 0, '#f5b544');
+        refs.cExcluded = D.card('EXCLUDED CASES', 0, '#f5b544');
         refs.cBugs.title = 'Unique Bugs whose Child link, reciprocal Parent, and Case History all match this Rack\'s Test Case.';
-        refs.cExcluded.title = 'Test Cases in this Rack Feature excluded only because their Phase tag is missing or conflicted. Case titles do not affect inclusion.';
+        refs.cExcluded.title = 'Test Cases in this Rack Feature excluded for a missing/conflicted Phase tag or an explicit configured scope exclusion.';
         [refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cBugs, refs.cExcluded].forEach(function (c) { cards.appendChild(c); });
         var rackSticky = D.el('div', 'panel-sticky'); rackSticky.appendChild(cards); panel.appendChild(rackSticky);
-        var rackScopeAudit = D.box(def.rack.label + ' Phase tag audit'); refs.scopeBox = D.el('div'); rackScopeAudit.appendChild(refs.scopeBox); panel.appendChild(rackScopeAudit);
+        var rackScopeAudit = D.box(def.rack.label + ' Case exclusion audit'); refs.scopeBox = D.el('div'); rackScopeAudit.appendChild(refs.scopeBox); panel.appendChild(rackScopeAudit);
         var rackTitleReview = D.box(def.rack.label + ' additional Case title review — 41-item reference (not excluded)'); refs.titleReviewBox = D.el('div'); rackTitleReview.appendChild(refs.titleReviewBox); panel.appendChild(rackTitleReview);
         var g = D.el('div', 'grid');
         var rb1 = D.box(def.rack.label + ' State distribution');
@@ -2128,7 +2139,7 @@
     var tf = allCases.filter(D.inRange).length, totalLinkedBugs = bugInventory.length;
     var activeScope = D.scopeStats(D.S.phase), excludedCount = activeScope.excluded.length;
     var consistency = D.rackConsistency();
-    var scopeNote = ' Phase validation: ' + allCases.length + ' Case(s) included regardless of title; ' + activeScope.phaseTagErrors.length + ' Case(s) excluded only for missing or conflicted Phase tags. Rack comes from the enclosing Rack Feature title.';
+    var scopeNote = ' Case scope: ' + allCases.length + ' Case(s) included; ' + activeScope.phaseTagErrors.length + ' Case(s) excluded for missing or conflicted Phase tags and ' + activeScope.configuredExclusions.length + ' configured FPGA teardown Case(s) excluded. Rack comes from the enclosing Rack Feature title.';
     var consistencyNote = consistency.allEqual ? ' Phase/Rack counts are consistent at ' + consistency.baseline + ' per Rack.' : ' Phase/Rack count mismatch detected; dashboard retains the actual hierarchy data.';
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
@@ -2197,7 +2208,7 @@
     var map = {};
     ((snapshot && snapshot.racks) || []).forEach(function (rack) {
       D.collect(rack, 'Test Case').forEach(function (testCase) {
-        if (!D.placementMatch(testCase).inPlacement) return;
+        if (!D.caseIsIncluded(testCase)) return;
         map[String(testCase.id)] = { id: testCase.id, title: testCase.title, rack: rack.label || rack.title || 'Rack', phase: D.casePhase(testCase), state: testCase.state || '?', changed: testCase.changed || null };
       });
     });
