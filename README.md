@@ -4,7 +4,7 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.3；工作分支已發布，待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.4；工作分支已發布，待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
@@ -33,13 +33,14 @@ https://dev.azure.com/{organization}/{project}/_queries/query/{query-id}/
 v1.11.0 在同一個 Query Dashboard 上方新增 **Phase 1** 與 **Phase 2** 兩個主分頁：
 
 - Test Case 的 Tags 必須包含完整的 `C4143_ScaleTest_Phase1` 或 `C4143_ScaleTest_Phase2`（比對時忽略大小寫、空白、`-` 與 `_`）才會進入對應 Phase；缺少、同時含有兩個，或只是相似名稱的 Phase Tag 都不納入統計。
-- 每個 Case 也必須具有完整 `Rack01`～`Rack05` Tag，並且該 Tag 必須與 Query hierarchy 中所在的 Rack 相同。Phase／Rack Tag 任一缺漏、衝突或 Rack 不一致時，Case 不會被自動搬移或放進錯誤分頁，而會列為 Scope audit 的 Phase/Rack tag issue。
+- Rack 歸屬只由 Azure DevOps hierarchy 中最外層 Rack Feature 的 title 擷取（例如 `[C4143][DV][Scale] Rack #1 - 11.3 HH Config` → Rack 1）；該 Feature 之下所有 System Requirement 與 Test Case 都屬於該 Rack。`Rack01`～`Rack05` Case tag 不再用來放置或排除 Case。
 - 分流後 Phase 1／Phase 2 各只顯示自己的一組 Rack 1～5，不會在同一 Phase 重複列出十個 Rack。
 - 兩個 Phase 都只統計使用者核准的 41 個 Test Case 標題，而且必須逐字完全相同；Query 內其他退役、額外或名稱有差異的 Case 不會進入卡片、圖表、Bug、Test Result、快照差異或匯出。
-- Overview 與各 Rack 都有 **OUT OF SCOPE** 卡片和可展開的 Scope filter audit，逐筆顯示 hierarchy Rack、Case ID、Reason、目前 Title、Case Tags、預期 Tag／標準 Title 與 State。Title 問題會標成 `TITLE MISMATCH`／`NOT APPROVED`；Tag 問題會標成 `PHASE TAG MISSING OR CONFLICT`、`RACK TAG MISSING OR CONFLICT` 或 `RACK TAG MISMATCH`。
+- Overview 與各 Rack 都有 **OUT OF SCOPE** 卡片和可展開的 Scope filter audit，逐筆顯示 Rack Feature、Case ID、Reason、目前 Title、Case Tags、預期 Phase Tag／標準 Title 與 State。Title 問題會標成 `TITLE MISMATCH`／`NOT APPROVED`；Tag 問題只會標成 `PHASE TAG MISSING OR CONFLICT`。
 - 兩個 Phase 各自建立 Overview、Rack 1～5、Insights 與 Test Features；State、Closed／Blocked Rate、最新 Test Result Outcome、Priority、Sample Size、Number of Cycles、Duration、Bug 與 Rack 統計互不混用。
 - Test Features 及週報 CSV／Excel 只匯出目前 Phase，檔名會加入 `Phase-1` 或 `Phase-2`；離線 Dashboard snapshot 仍保存完整 Query 的兩個 Phase。
 - Phase 1／Phase 2 按鈕會顯示當次 Query 符合 41-title scope 的實際 Case 數；不會把缺少的 Case 補成 41，也不使用固定 Expected 數量。選擇的 Phase 會保存在目前瀏覽器，下一次開啟仍停留在同一 Phase。
+- Overview 新增 **Phase / Rack Case count consistency** 稽核表，同時列出 Rack #1～#5 在 Phase 1、Phase 2 的實際 included Case 數。只有全部十個數字相同才顯示 `CONSISTENT`；不一致時明確警示，但不會為了湊數搬移、刪除或補造 Case。
 - 每次開啟、F5、**Re-run query** 或自動刷新都會重新讀取兩個 Phase 的最新 Work Item State，並查詢最近 120 天 Test Runs／Results 後依 Case ID 顯示目前可取得的最新 Outcome；同名但 ID 不同的 Phase 1／Phase 2 Case 不會以 Title 誤配。
 
 ## Rack-aware Bug 追蹤

@@ -2,14 +2,14 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 文件版本 | 2.5 |
+| 文件版本 | 2.6 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.3，工作分支已發布，待合併 `main`） |
-| 最新腳本大小 | 194105 bytes（約 189.6 KB） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.4，工作分支已發布，待合併 `main`） |
+| 最新腳本大小 | 196931 bytes（約 192.3 KB） |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
-> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為完整 Phase／Rack Tag placement 驗證。前面章節中的「未完成」為當時狀態，最新狀態以第 35 節為準。
+> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為目前以 Rack Feature hierarchy 為唯一 Rack 來源的規則。前面章節中的「未完成」為當時狀態，最新狀態以第 36 節為準。
 
 > **2026-08-14 的 Live Query 曾驗證到 5 Racks × 每櫃 58 Test Cases = 290 Test Cases；這是當時的查詢結果，不再作為固定 Expected 基準。v1.8.6 只顯示每次 Query 的實際數量。文件中的 54／270、58／290 等數值均為各版本當時的驗證紀錄。**
 
@@ -1071,3 +1071,27 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 1440 × 900 與 390 × 844 Playwright QA 通過；手機沒有 body 水平溢出，Console／page errors 為 0。正式登入頁的 v1.12.3 live totals 尚待 PR merge 後按 **Re-run query** 讀回。
 - Extension 同步升為 v1.3.3 並重新封裝；userscript 為 194,105 bytes（SHA-256 `E75F5F7B0289CA5AE431C66391589CB567A4B96DB0EC13681DC571464AC82311`），VSIX 為 63,429 bytes（SHA-256 `E6AA55212D667F7A7508CC8A34F16DC2D3C7F86144EBC3CEBC51A30D651FC46C`）。VSIX 已讀回確認內含 userscript v1.12.3、`placementMatch`、完整 Phase 1／2 與 Rack01-Rack05 判斷，以及 manifest v1.3.3。
 - 本版更新既有 Draft PR #17；不直接合併 `main`，Tampermonkey 須 PR merge 後才會取得 v1.12.3。
+
+## 36. 2026-11-01 Rack Feature hierarchy 歸屬與 Phase/Rack 數量稽核（v1.12.4）
+
+### 36.1 目前資料歸屬規則
+
+- Rack 不再由 Test Case 的 `Rack01`～`Rack05` tag 判斷、驗證或修正。唯一來源是 Query hierarchy 最外層的 Rack Feature；程式從該 Feature title 擷取 `Rack #1`～`Rack #5` 的號碼，例如 `[C4143][DV][Scale] Rack #1 - 11.3 HH Config` 屬於 Rack 1。
+- 該 Rack Feature 之下的所有 System Requirement、Feature 與 Test Case 都保留在同一個 Rack。即使 Case tag 顯示不同 Rack，也不會被移動、排除或併入另一個 Rack，避免把 tag 當成比 Azure DevOps hierarchy 更高優先權的來源。
+- Phase 仍只接受完整 `C4143_ScaleTest_Phase1` 或 `C4143_ScaleTest_Phase2` tag；缺少、同時存在兩個或僅相似名稱時列為 `PHASE TAG MISSING OR CONFLICT`，不進入任一 Phase 的統計。
+- Scope audit 的 Rack 欄位更名為 `Rack Feature`，並明示 Rack 來自 enclosing Rack Feature title；`Rack01`～`Rack05` Case tags 只保留為可稽核的原始 tag 文字，不參與 placement。
+
+### 36.2 一致性稽核與不補數原則
+
+- Overview 新增 **Phase / Rack Case count consistency**。固定列出 Rack #1～#5，分別顯示 Phase 1 與 Phase 2 的實際 41-title＋有效 Phase tag Case 數。
+- 只有五櫃、兩個 Phase 的十個數字完全一致時才顯示 `CONSISTENT`。若有缺少 Phase tag、少 Case 或 hierarchy 本身不同，畫面顯示 `MISMATCH` 與每個 Rack 的實際數量。
+- 稽核只揭露資料不一致；絕不為了取得一致數量而新增、刪除、移動或複製 Case。Status toast 同步回報一致或 mismatch，並說明 Rack 由 enclosing Feature title 決定。
+
+### 36.3 本機驗證與封裝
+
+- Playwright fixture 正常情境：Phase 1／Phase 2 各 205 Cases，Rack #1～#5 各為 41／41，稽核顯示 `CONSISTENT`。1440 × 900 與 390 × 844 均無 body 水平溢出或 console／page errors。
+- Rack tag 故意錯置情境：Phase 1 Rack 1 Case 的 `Rack02` tag 不影響其原始 Rack 1 hierarchy 位置，Phase 1 仍 205。另將一筆 Phase 2 Case 移除 Phase tag 後，Phase 2 Rack 1 變 40；稽核正確顯示 `MISMATCH`，沒有移動或補造 Case。
+- 另一個少資料情境：只移除 Phase 2 Rack 5 一筆 Case 的 Phase tag，稽核表只顯示 Rack 5 的 Phase 2 為 40，其餘維持 41，並正確警告資料不一致。
+- userscript v1.12.4：196,931 bytes，SHA-256 `7D1AEDD7DE17CCD676B82BB68FC3D9504C878F65F40B2BABAE4A415635EB362B`。Extension v1.3.4 已執行 TypeScript check、esbuild 與 VSIX package；VSIX 為 64,117 bytes，SHA-256 `6994DF18CB9605EA61C4B61229AA5270F2BA58716030AD05BF9C41053573839E`。讀回 VSIX 已確認包含 userscript v1.12.4、`rackConsistency`、Rack Feature-only 說明與 manifest v1.3.4。
+- Browser plugin 不在本工作階段，依既有維護流程用 bundled Playwright 執行 fixture／互動與響應式驗證。正式 Azure DevOps 的實際 Case 數仍須在登入的 Dashboard 按 **Re-run query** 讀回，並以此表確認 Phase 1／Phase 2 與五櫃是否全部相同。
+- 已推送 commit `def55a3` 至 `local/phase-tabs`，並建立 Draft PR [#18](https://github.com/alan512627/azure-devops-state-monitoring/pull/18)（建立時 GitHub 回報 `CLEAN`）。依要求未直接合併 `main`；Tampermonkey 的固定 `main` URL 會在 PR 合併後取得 v1.12.4。
