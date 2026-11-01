@@ -4,7 +4,7 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.10.3）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.1；工作分支已發布，待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
@@ -28,6 +28,18 @@ https://dev.azure.com/{organization}/{project}/_queries/query/{query-id}/
 
 每個 Query 的 snapshot 與最多 14 份每日歷史會使用各自的儲存 key，切換專案時不會拿另一個 Query 的 Case 做 Added／Removed／State Changed 比較。Live query 仍受瀏覽器同源規則限制；目前從 `azurecsi.visualstudio.com` 啟動時，最適合加入同一個 `azurecsi` organization 下的其他 project Query。
 
+## Phase 1／Phase 2 主分頁
+
+v1.11.0 在同一個 Query Dashboard 上方新增 **Phase 1** 與 **Phase 2** 兩個主分頁：
+
+- Test Case 的 Tags 包含 `Phase2`（忽略大小寫、空白、`-` 與 `_`）時歸入 Phase 2；其餘 Query Test Cases 歸入 Phase 1。
+- 兩個 Phase 都只統計使用者核准的 41 個 Test Case 標題，而且必須逐字完全相同；Query 內其他退役、額外或名稱有差異的 Case 不會進入卡片、圖表、Bug、Test Result、快照差異或匯出。
+- Overview 與各 Rack 都有 **OUT OF SCOPE** 卡片和可展開的 Scope filter audit，逐筆顯示被排除的 Rack、Case ID、Reason、目前 Title、應使用的標準 Title 與 State。僅大小寫、標點或空白不同會標成 `TITLE MISMATCH`；完全對不上 41 項者標成 `NOT APPROVED`。
+- 兩個 Phase 各自建立 Overview、Rack 1～5、Insights 與 Test Features；State、Closed／Blocked Rate、最新 Test Result Outcome、Priority、Sample Size、Number of Cycles、Duration、Bug 與 Rack 統計互不混用。
+- Test Features 及週報 CSV／Excel 只匯出目前 Phase，檔名會加入 `Phase-1` 或 `Phase-2`；離線 Dashboard snapshot 仍保存完整 Query 的兩個 Phase。
+- Phase 1／Phase 2 按鈕會顯示當次 Query 符合 41-title scope 的實際 Case 數；不會把缺少的 Case 補成 41，也不使用固定 Expected 數量。選擇的 Phase 會保存在目前瀏覽器，下一次開啟仍停留在同一 Phase。
+- 每次開啟、F5、**Re-run query** 或自動刷新都會重新讀取兩個 Phase 的最新 Work Item State，並查詢最近 120 天 Test Runs／Results 後依 Case ID 顯示目前可取得的最新 Outcome；同名但 ID 不同的 Phase 1／Phase 2 Case 不會以 Title 誤配。
+
 ## Rack-aware Bug 追蹤
 
 v1.10.3 將 Bug 資料來源改為 Test Case Links 下的 **Child link**，並執行三重一致性檢查：
@@ -37,6 +49,17 @@ v1.10.3 將 Bug 資料來源改為 Test Case Links 下的 **Child link**，並�
 - Test Case History／Updates 的 `relations.added` 也必須存在同一筆 `Child → Bug`；三者一致才加入 Bug List。
 - Related、Parent-only、Dependency、Duplicate、Task，以及 Child／Parent／History 不一致的資料都會排除；排除或 History 讀取失敗時，右下角提示會列出數量。
 - Bug 明細逐筆列出 **Rack → Case ID → Child／Parent／History matched → Added time／Added by**，可直接追查來源。
+
+## Execution Timeline
+
+v1.12.1 在每個 Phase 提供 **Execution Timeline** 分頁，資料直接來自各 Test Case 的 Define → Execution 欄位：
+
+- `Actual Start Date`、`Actual Completion Date`、`Estimate/Estimated Start Date`、`Estimate/Estimated Completion Date` 會透過 Azure DevOps Fields API 解析實際 reference name；找不到的欄位會顯示 unavailable，不會用 Changed Date 代替。
+- Case 順序依 Actual Start、Estimated Start、可用 Completion Date 排列。Estimated 為藍色外框、Actual 為綠色實線；只有單邊日期時顯示里程碑點。
+- 可篩選 All Racks／單一 Rack、Actual + Estimate／Actual only／Estimate only，並以 Case ID、Title、State 搜尋。
+- 每個 Case 可按 **Show date & time**（手機可直接點觸）在該列下方展開 Actual Start、Actual Completion、Estimate Start、Estimate Completion 的完整日期與時間；再次按下即可收合，也支援鍵盤 Enter／Space。
+- `NO EXECUTION DATES` 與 `INVALID DATE RANGES` 卡片會顯示缺漏及 Completion 早於 Start 的資料；可展開清單逐筆修正，不會自行交換或推算日期。
+- 四個日期欄位也會同步加入 Test Features 表格、Weekly CSV／Excel 與 Rack 1 Test Features Excel。
 
 Overview 與各 Rack 的 Bug 顯示仍統一由同一份 `Bug × Rack × Case` inventory 計算：
 
