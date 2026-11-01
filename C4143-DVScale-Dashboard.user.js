@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.20
-// @description  Uses one-decimal maximum percentage formatting, compact metrics, and staged background supplemental loading.
+// @version      1.12.21
+// @description  Uses Execute Test Point outcomes for per-case status, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -597,6 +597,37 @@
     }
     return output;
   };
+  D.fetchPlanTestPoints = async function (base, plan) {
+    var rootSuite = plan && plan.rootSuite && plan.rootSuite.id;
+    if (plan == null || plan.id == null || rootSuite == null) return [];
+    var url = base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/testplan/Plans/' + encodeURIComponent(plan.id)
+      + '/Suites/' + encodeURIComponent(rootSuite) + '/TestPoint?includePointDetails=true&isRecursive=true&api-version=7.1';
+    var response = await D.apiFetch(url);
+    return response.value || [];
+  };
+  D.testPointOutcome = function (point) {
+    var results = Array.isArray(point && point.results) ? point.results.slice() : [];
+    results.sort(function (a, b) {
+      return String(b.lastUpdatedDate || b.completedDate || b.dateCompleted || '').localeCompare(String(a.lastUpdatedDate || a.completedDate || a.dateCompleted || ''))
+        || (+b.id || 0) - (+a.id || 0);
+    });
+    var latest = results[0] || point && point.result || null;
+    return String((latest && latest.outcome) || (point && point.outcome) || (point && point.state) || '').trim();
+  };
+  D.testPointDate = function (point) {
+    var results = Array.isArray(point && point.results) ? point.results.slice() : [];
+    results.sort(function (a, b) {
+      return String(b.lastUpdatedDate || b.completedDate || b.dateCompleted || '').localeCompare(String(a.lastUpdatedDate || a.completedDate || a.dateCompleted || ''))
+        || (+b.id || 0) - (+a.id || 0);
+    });
+    var latest = results[0] || point && point.result || null;
+    return (latest && (latest.lastUpdatedDate || latest.completedDate || latest.dateCompleted)) || point && (point.lastUpdatedDate || point.updatedDate) || '';
+  };
+  D.testPointUrl = function (point) {
+    var planId = point && (point.planId || point.plan && point.plan.id), suiteId = point && (point.suiteId || point.suite && point.suite.id), pointId = point && point.id;
+    if (planId == null || suiteId == null || pointId == null) return '';
+    return D.CFG.org + '/' + encodeURIComponent(D.CFG.project) + '/_testManagement?planId=' + encodeURIComponent(planId) + '&suiteId=' + encodeURIComponent(suiteId) + '&pointId=' + encodeURIComponent(pointId);
+  };
   D.loadTestResults = async function (base, cases) {
     var now = new Date(), windows = [];
     now.setUTCMilliseconds(0);
@@ -605,11 +636,40 @@
       var min = new Date(now.getTime() - Math.min(offset + 7, D.CFG.testResultDays) * 86400000 + 1000);
       windows.push({ min: min.toISOString(), max: max.toISOString() });
     }
-    var planMap = {}, planError = '';
+    var planMap = {}, planDetails = [], planError = '';
     try {
       var planResponse = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/testplan/plans?filterActivePlans=false&api-version=7.1');
-      (planResponse.value || []).forEach(function (plan) { planMap[String(plan.id)] = plan.name || ('Plan ' + plan.id); });
+      planDetails = planResponse.value || [];
+      planDetails.forEach(function (plan) { planMap[String(plan.id)] = plan.name || ('Plan ' + plan.id); });
     } catch (planLoadError) { planError = String((planLoadError && planLoadError.message) || planLoadError); }
+    var pointSets = await D.mapLimit(planDetails, 3, async function (plan) {
+      try { return { plan: plan, points: await D.fetchPlanTestPoints(base, plan) }; }
+      catch (error) { return { plan: plan, points: [], error: String((error && error.message) || error) }; }
+    });
+    var byId = {}, byTitle = {}, pointMatches = 0, pointErrors = [];
+    cases.forEach(function (testCase) {
+      byId[String(testCase.id)] = testCase;
+      var key = D.normalizedTitle(testCase.title);
+      (byTitle[key] = byTitle[key] || []).push(testCase);
+      testCase.latestResult = null;
+      testCase.latestTestPoint = null;
+    });
+    pointSets.forEach(function (set) {
+      if (set.error) pointErrors.push((set.plan && set.plan.name || 'Plan ' + set.plan.id) + ': ' + set.error);
+      (set.points || []).forEach(function (point) {
+        var ref = point.testCaseReference || point.testCase || {}, caseId = ref.id != null ? String(ref.id) : '';
+        var testCase = byId[caseId] || null;
+        if (!testCase) {
+          var title = ref.name || point.testCaseTitle || point.title || '', matches = byTitle[D.normalizedTitle(title)] || [];
+          if (matches.length === 1) testCase = matches[0];
+        }
+        if (!testCase) return;
+        var mapped = { id: point.id, outcome: D.testPointOutcome(point) || 'Unspecified', state: point.state || '', lastUpdatedDate: D.testPointDate(point), planId: String(set.plan.id), planName: set.plan.name || ('Plan ' + set.plan.id), suiteId: point.suiteId || point.suite && point.suite.id || '', url: D.testPointUrl(Object.assign({}, point, { planId: set.plan.id })) };
+        var current = testCase.latestTestPoint;
+        if (!current || String(mapped.lastUpdatedDate || '') > String(current.lastUpdatedDate || '') || (String(mapped.lastUpdatedDate || '') === String(current.lastUpdatedDate || '') && (+mapped.id || 0) > (+current.id || 0))) testCase.latestTestPoint = mapped;
+        pointMatches++;
+      });
+    });
     var runResponses = await D.mapLimit(windows, 2, function (windowRange) {
       var url = base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/test/runs?minLastUpdatedDate=' + encodeURIComponent(windowRange.min)
         + '&maxLastUpdatedDate=' + encodeURIComponent(windowRange.max) + '&$top=100&api-version=7.1';
@@ -623,13 +683,6 @@
     var resultSets = await D.mapLimit(runs, 4, async function (run) {
       try { return await D.fetchRunResults(base, run); }
       catch (error) { run._resultError = String((error && error.message) || error); return []; }
-    });
-    var byId = {}, byTitle = {};
-    cases.forEach(function (testCase) {
-      byId[String(testCase.id)] = testCase;
-      var key = D.normalizedTitle(testCase.title);
-      (byTitle[key] = byTitle[key] || []).push(testCase);
-      testCase.latestResult = null;
     });
     var matchedResults = 0;
     runs.forEach(function (run, runIndex) {
@@ -653,20 +706,20 @@
     });
     var summary = D.testResultSummary(cases);
     D.S.testResults = {
-      status: 'ok', source: 'Azure DevOps Test Runs / Results', lookbackDays: D.CFG.testResultDays,
+      status: 'ok', source: 'Azure DevOps Test Plans Test Points (Execute) + Test Runs / Results', lookbackDays: D.CFG.testResultDays,
       runs: runs.map(function (run) {
         var planId = run.plan && run.plan.id != null ? String(run.plan.id) : '';
         return { id: run.id, name: run.name || ('Run ' + run.id), planId: planId, planName: planMap[planId] || (run.plan && run.plan.name) || '', state: run.state || '', startedDate: run.startedDate || null, completedDate: run.completedDate || null, resultCount: run.resultCount || 0, url: D.testRunUrl(run.id), error: run._resultError || '' };
       }),
       testPlans: Object.keys(planMap).map(function (id) { return { id: id, name: planMap[id] }; }), testPlanWarning: planError,
-      matchedResults: matchedResults, summary: summary, loadedAt: new Date().toISOString()
+      matchedResults: matchedResults, pointMatches: pointMatches, pointErrors: pointErrors, summary: summary, loadedAt: new Date().toISOString()
     };
   };
   D.isFailedTestOutcome = function (outcome) { return /^(failed|blocked|aborted|error|timeout)$/i.test(String(outcome || '').trim()); };
   D.testResultSummary = function (cases) {
     var summary = { cases: cases.length, matched: 0, passed: 0, failed: 0, other: 0, noResult: 0, denominator: 0 };
     cases.forEach(function (testCase) {
-      var result = testCase.latestResult;
+      var result = D.caseOutcome(testCase);
       if (!result) { summary.noResult++; return; }
       summary.matched++;
       if (/^passed$/i.test(result.outcome)) summary.passed++;
@@ -681,8 +734,8 @@
   D.loadSupplementalData = async function (base, cases) {
     D.S.testResults = { status: 'loading', runs: [] };
     await D.loadTestResults(base, cases).catch(function (error) {
-      cases.forEach(function (testCase) { testCase.latestResult = null; });
-      D.S.testResults = { status: 'error', runs: [], error: String((error && error.message) || error), source: 'Azure DevOps Test Runs / Results' };
+      cases.forEach(function (testCase) { testCase.latestResult = null; testCase.latestTestPoint = null; });
+      D.S.testResults = { status: 'error', runs: [], error: String((error && error.message) || error), source: 'Azure DevOps Test Plans Test Points / Test Runs / Results' };
     });
   };
   D.collect = function (node, type, out) { out = out || []; if (node.type === type) out.push(node); (node.children || []).forEach(function (c) { D.collect(c, type, out); }); return out; };
@@ -893,9 +946,10 @@
     if (value === 'not applicable' || value === 'notapplicable' || value === 'n/a' || value === 'na') return 'Not Applicable';
     return value ? 'Other' : 'No Result';
   };
+  D.caseOutcome = function (testCase) { return testCase && testCase.latestTestPoint || null; };
   D.resultOutcomeCounts = function (cases) {
     var counts = { Passed: 0, Failed: 0, Blocked: 0, 'Not Applicable': 0, Other: 0, 'No Result': 0 };
-    cases.forEach(function (testCase) { counts[D.resultOutcomeKey(testCase.latestResult && testCase.latestResult.outcome)]++; });
+    cases.forEach(function (testCase) { var outcome = D.caseOutcome(testCase); counts[D.resultOutcomeKey(outcome && outcome.outcome)]++; });
     return counts;
   };
   D.resultOutcomeSummary = function (cases) {
@@ -1235,7 +1289,7 @@
     if (!result) return D.metricBadge('Test Result', 'No result', '#64748b');
     var color = /^passed$/i.test(result.outcome) ? '#34d399' : (D.isFailedTestOutcome(result.outcome) ? '#fb7185' : '#fbbf24');
     var badge = D.metricBadge('Test Result', result.outcome || 'Unspecified', color);
-    badge.title = result.runName + ' · ' + D.fmt(result.completedDate) + ' · matched by ' + result.matchMethod;
+    badge.title = result.planName ? ('Execute Test Point · ' + (result.planName || '') + (result.suiteId ? ' · Suite #' + result.suiteId : '') + (result.lastUpdatedDate ? ' · ' + D.fmt(result.lastUpdatedDate) : '')) : result.runName + ' · ' + D.fmt(result.completedDate) + ' · matched by ' + result.matchMethod;
     return badge;
   };
   D.testRunsTable = function () {
@@ -1270,7 +1324,7 @@
     (comparison.stateChanged || []).forEach(function (item) { changeKinds[item.id] = item.beforeState + ' -> ' + item.afterState; });
     var rows = [];
     D.phaseRacks().forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (testCase) {
-      var result = testCase.latestResult || {}, metrics = testCase.metrics || {}, execution = testCase.execution || {};
+      var result = D.caseOutcome(testCase) || {}, metrics = testCase.metrics || {}, execution = testCase.execution || {};
       rows.push({ rack: rack.label, id: testCase.id, title: testCase.title, state: testCase.state, changed: D.fmt(testCase.changed), changedThisWeek: changedIds[testCase.id] ? 'Yes' : 'No', snapshotChange: changeKinds[testCase.id] || '-',
         result: result.outcome || 'No result', resultDate: D.fmt(result.completedDate), runId: result.runId || '-', priority: D.displayFieldValue(metrics.priority), sampleSize: D.displayFieldValue(metrics.sampleSize), cycles: D.displayFieldValue(metrics.numberOfCycles), duration: D.displayFieldValue(metrics.testDuration),
         actualStart: D.fmt(execution.actualStartDate), actualCompletion: D.fmt(execution.actualCompletionDate), estimateStart: D.fmt(execution.estimateStartDate), estimateCompletion: D.fmt(execution.estimateCompletionDate),
@@ -1666,7 +1720,7 @@
     row.appendChild(D.typeBadge(n.type || 'Test Case'));
     row.appendChild(D.el('span', 'casetitle', n.title));
     row.appendChild(D.chip(n.state));
-    row.appendChild(D.testResultBadge(n.latestResult));
+    row.appendChild(D.testResultBadge(D.caseOutcome(n)));
     var metrics = n.metrics || {};
     if (D.hasMetric(metrics.priority)) row.appendChild(D.metricBadge('Priority', 'P' + (D.priorityLevel(metrics.priority) || metrics.priority), '#c084fc'));
     (n.bugs || []).forEach(function (bug) { row.appendChild(D.bugLink(bug)); });
@@ -1701,7 +1755,7 @@
       var n = row._case;
       var bugText = (n.bugs || []).map(function (bug) { return ' bug #' + bug.id + ' ' + bug.title + ' ' + bug.state; }).join('');
       var metricText = Object.keys(n.metrics || {}).map(function (key) { return ' ' + key + ' ' + n.metrics[key]; }).join('');
-      var resultText = n.latestResult ? (' test result ' + n.latestResult.outcome + ' run ' + n.latestResult.runId + ' ' + n.latestResult.runName) : ' no test result';
+      var outcome = D.caseOutcome(n), resultText = outcome ? (' test point outcome ' + outcome.outcome + ' ' + (outcome.planName || '') + ' ' + (outcome.runId || '')) : ' no test point outcome';
       var hit = !text || (n.title + ' #' + n.id + ' ' + n.state + bugText + metricText + resultText).toLowerCase().indexOf(text) >= 0;
       row.classList.toggle('hide', !hit);
     });
@@ -1784,7 +1838,8 @@
       row.appendChild(D.el('td', 'feature-title', testCase.title));
       var stateCell = D.el('td'); stateCell.appendChild(D.chip(testCase.state)); row.appendChild(stateCell);
       var resultCell = D.el('td', 'result-link');
-      if (testCase.latestResult) { var resultLink = D.el('a', null, testCase.latestResult.outcome + ' · Run #' + testCase.latestResult.runId); resultLink.href = testCase.latestResult.runUrl; resultLink.target = '_blank'; resultLink.rel = 'noopener'; resultCell.appendChild(resultLink); }
+      var caseOutcome = D.caseOutcome(testCase);
+      if (caseOutcome) { var resultLink = D.el('a', null, caseOutcome.outcome + (caseOutcome.planName ? ' · Execute Test Point' : ' · Run #' + caseOutcome.runId)); resultLink.href = caseOutcome.url || caseOutcome.runUrl || D.wiUrl(testCase.id); resultLink.target = '_blank'; resultLink.rel = 'noopener'; resultCell.appendChild(resultLink); }
       else resultCell.textContent = 'No result';
       row.appendChild(resultCell);
       row.appendChild(D.el('td', null, D.fmt(testCase.changed)));
@@ -1803,7 +1858,7 @@
       row.appendChild(bugs);
       var comments = D.displayFieldValue(fields.comments), commentsCell = D.el('td', 'feature-comments', comments);
       commentsCell.title = comments === '-' ? '' : comments; row.appendChild(commentsCell);
-      row._featureSearch = [testCase.id, testCase.title, featureName, entry.rack.label, testCase.state, testCase.latestResult && testCase.latestResult.outcome, testCase.latestResult && testCase.latestResult.runId, metrics.priority,
+      row._featureSearch = [testCase.id, testCase.title, featureName, entry.rack.label, testCase.state, caseOutcome && caseOutcome.outcome, caseOutcome && (caseOutcome.runId || caseOutcome.planName), metrics.priority,
         metrics.sampleSize, metrics.numberOfCycles, metrics.testDuration, D.fmt(testCase.changed), D.fmt(execution.actualStartDate), D.fmt(execution.actualCompletionDate), D.fmt(execution.estimateStartDate), D.fmt(execution.estimateCompletionDate),
         (testCase.bugs || []).map(function (bug) { return 'BUG #' + bug.id + ' ' + bug.title + ' ' + bug.state; }).join(' '),
         D.displayFieldValue(fields.scriptType), D.displayFieldValue(fields.crcSdk), D.displayFieldValue(fields.igsOwner), comments].join(' ').toLowerCase();
