@@ -1162,4 +1162,4 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 ### 40.2 驗證與發布
 
 - `node --check C4143-DVScale-Dashboard.user.js`、`git diff --check` 與 Extension `npm run package`（TypeScript check、esbuild、VSIX）通過。瀏覽器 fixture 確認 Overview 不再有 FEATURES／SYSTEM REQS／EXCLUDED CASES 或三段 audit，Insights 沒有 Test Runs table，Execution Timeline header 為 sticky、日期字體 12px、row 62px、bar 12px；Phase 1／2 各 205、每 Rack 41 的既有 fixture scope 未受影響。正式 ADO live query 仍需登入後按 **Re-run query**。
-- userscript v1.12.9：196,849 bytes，SHA-256 `5EDC0C8DD36CF21146AED23470E9E94CE3D06D9AA58347D9FD478D005116A388`。Extension v1.3.9 VSIX 為 64,214 bytes，SHA-256 `A265F64527435C99D2E3E6764A66D2EADADCEA583FF9F6EFC74B31A6F9C42339`；讀回 `dist/C4143-DVScale-Dashboard.user.js` 確認為 v1.12.9。更新內容會追加到既有 Draft PR #21；不會改動 Azure DevOps 組織資料。
+- userscript v1.12.9：196,849 bytes，SHA-256 `5EDC0C8DD36CF21146AED23470E9E94CE3D06D9AA58347D9FD478D005116A388`。Extension v1.3.9 VSIX 為 64,214 bytes，SHA-256 `A265F64527435C99D2E3E6764A66D2EADADCEA583FF9F6EFC74B31A6F9C42339`；讀回 `dist/C4143-DVScale-Dashboard.user.js` 確認為 v1.12.9。修正 commit `099f086` 已追加到 Draft PR #21；不會改動 Azure DevOps 組織資料。
