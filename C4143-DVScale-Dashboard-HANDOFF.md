@@ -2,14 +2,14 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 文件版本 | 3.1 |
+| 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.10，工作分支已發布，待合併 `main`） |
-| 最新腳本大小 | 196,875 bytes；SHA-256 `A6ED9D558E5FB574BF42BAB4DF4AE2C2649FB40A276D532CCCEDA615EC5BF9AB` |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.11，工作分支已發布，待合併 `main`） |
+| 最新腳本大小 | 196,259 bytes；SHA-256 `5671F345114BAEC56B0BFB8E7F4DBB1633E869E71B64F649B12BEAAAAAA7B25F` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
-> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為移除 Case title 篩選，第 38 節為單一 FPGA teardown Case 排除，第 39 節修正其跨 Phase 的 title 格式差異，第 40 節為 dashboard 資訊精簡與固定時間軸，第 41 節為百分比格式統一。前面章節中的「未完成」為當時狀態，最新狀態以第 41 節為準。
+> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為移除 Case title 篩選，第 38 節為單一 FPGA teardown Case 排除，第 39 節修正其跨 Phase 的 title 格式差異，第 40 節為 dashboard 資訊精簡與固定時間軸，第 41 節為百分比格式統一，第 42 節為移除 Number_of_cycles 統計。前面章節中的「未完成」為當時狀態，最新狀態以第 42 節為準。
 
 > **2026-08-14 的 Live Query 曾驗證到 5 Racks × 每櫃 58 Test Cases = 290 Test Cases；這是當時的查詢結果，不再作為固定 Expected 基準。v1.8.6 只顯示每次 Query 的實際數量。文件中的 54／270、58／290 等數值均為各版本當時的驗證紀錄。**
 
@@ -1170,3 +1170,10 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - `D.rate()` 改用相同 formatter；只調整呈現，不改變任何 count、denominator 或統計邏輯。
 - `node --check`、`git diff --check`、Extension `npm run package` 通過；fixture 顯示 Pass／Fail 卡片與 pie／legend／bar 百分比皆為最多一位小數（例如 `24.9%`、整數 `20%`、零值 `0%`）。正式 live ADO 仍需登入後按 **Re-run query**。
 - userscript v1.12.10：196,875 bytes，SHA-256 `A6ED9D558E5FB574BF42BAB4DF4AE2C2649FB40A276D532CCCEDA615EC5BF9AB`。Extension v1.3.10 VSIX 為 64,255 bytes，SHA-256 `20615D773C2406D9438E80072D637309BF1BB74DC447A584145216DAA1DEABFC`；讀回 VSIX 確認 bundled userscript 為 v1.12.10。修正將追加到 Draft PR #21。
+
+## 42. 2026-11-01 移除 Number_of_cycles 統計（v1.12.11）
+
+- 移除 Overview／Rack 的 Number_of_cycles 統計區塊，以及 Test Features 表格中的可見 Cycles 欄位。
+- Number_of_cycles 仍保留在資料模型與既有 Excel 匯出結構，這次只移除 dashboard 畫面上的統計與欄位，不影響資料讀取相容性。
+- `node --check`、`git diff --check`、Extension `npm run package` 通過；fixture 確認 Overview／Rack 不再顯示 Number_of_cycles 統計，Test Features 也不再顯示 Cycles 欄位，Phase 1／2 仍各 205、每 Rack 41。正式 live ADO 仍需登入後按 **Re-run query**。
+- userscript v1.12.11：196,259 bytes，SHA-256 `5671F345114BAEC56B0BFB8E7F4DBB1633E869E71B64F649B12BEAAAAAA7B25F`。Extension v1.3.11 VSIX 為 64,140 bytes，SHA-256 `DF76914D4E0FA70E993A64010098019A2705DA4304DBB6F745DA405CEBC5E60C`；讀回 VSIX 確認 bundled userscript 為 v1.12.11。修正將追加到 Draft PR #21。
