@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.25，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.26，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1273,3 +1273,10 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - `outcome` 為空時不再以 point `state`（如 `Ready`）代替；plan／suite 連結支援 `testPlan.id`、`testSuite.id`；`Test Point matches` 改為計算「對到的 Case 數」並附上來源（`via case-id query` 或 `plan scan`）。
 - 修正 `D.pie`：過濾 0 筆的 key，單一 outcome 佔 100% 時改畫完整圓環，不再因起訖角度重疊而整個圓餅空白。
 - 官方 API 依據：[Points - Get Points By Query](https://learn.microsoft.com/en-us/rest/api/azure/devops/test/points/get-points-by-query?view=azure-devops-rest-7.1)。此 POST 為查詢用途，唯讀；未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point。
+
+## 56. 2026-11-02 Test Point outcome 不再等待 Test Runs 載入（v1.12.26）
+
+- 現象：v1.12.25 實測首次載入／重新整理後 Overview 圓餅圖與 Rack 分頁仍全為 `Active`；切到 Rack 1 再切回 Overview 時，只有未受 `status` 判斷的 Overview 長條圖會出現 Rack 1 正確 outcome。
+- 根因：Test Point outcome 已寫入 Case，但 `D.S.testResults.status` 要等 120 天 Test Runs 與每個 Run 的 results 全部讀完才變成 `ok`；在大型 org 這段很慢或會失敗。圓餅圖、Rack 分頁與 Pass／Fail 卡片以 `status === 'ok'` 為條件，因此持續顯示全部 `Active`；若 Test Runs 讀取拋錯，`loadSupplementalData` 的 catch 還會把已取得的 `latestTestPoint` 清空。
+- 修正：Test Point 對應完成後立即設定 `status: 'ok'`、`pointsReady: true` 並 `D.refresh()`；Test Runs 改為獨立階段（`runsStatus: loading/ok/error`），失敗只影響 Insights 的 Test Run 清單，不再清除 Test Point outcome。
+- 未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point；API 仍為唯讀。

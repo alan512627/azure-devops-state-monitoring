@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.25
+// @version      1.12.26
 // @description  Uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -718,6 +718,14 @@
         if (!matchedCaseIds[testCase.id]) { matchedCaseIds[testCase.id] = true; pointMatches++; }
       });
     });
+    // Test Point outcomes are the dashboard's Case outcome source: publish them now so charts do not wait on Test Runs.
+    D.S.testResults = {
+      status: 'ok', pointsReady: true, runsStatus: 'loading', runsError: '', source: 'Azure DevOps Test Plans Test Points (Execute) + Test Runs / Results', lookbackDays: D.CFG.testResultDays,
+      runs: [], testPlans: Object.keys(planMap).map(function (id) { return { id: id, name: planMap[id] }; }), testPlanWarning: planError,
+      matchedResults: 0, pointMatches: pointMatches, pointErrors: pointErrors, pointSource: pointSource, summary: D.testResultSummary(cases), loadedAt: new Date().toISOString()
+    };
+    if (typeof D.refresh === 'function') { try { D.refresh(); } catch (refreshError) { } }
+    try {
     var runResponses = await D.mapLimit(windows, 2, function (windowRange) {
       var url = base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/test/runs?minLastUpdatedDate=' + encodeURIComponent(windowRange.min)
         + '&maxLastUpdatedDate=' + encodeURIComponent(windowRange.max) + '&$top=100&api-version=7.1';
@@ -752,16 +760,17 @@
         matchedResults++;
       });
     });
-    var summary = D.testResultSummary(cases);
-    D.S.testResults = {
-      status: 'ok', source: 'Azure DevOps Test Plans Test Points (Execute) + Test Runs / Results', lookbackDays: D.CFG.testResultDays,
+    D.S.testResults = Object.assign({}, D.S.testResults, {
+      runsStatus: 'ok', summary: D.testResultSummary(cases), matchedResults: matchedResults, loadedAt: new Date().toISOString(),
       runs: runs.map(function (run) {
         var planId = run.plan && run.plan.id != null ? String(run.plan.id) : '';
         return { id: run.id, name: run.name || ('Run ' + run.id), planId: planId, planName: planMap[planId] || (run.plan && run.plan.name) || '', state: run.state || '', startedDate: run.startedDate || null, completedDate: run.completedDate || null, resultCount: run.resultCount || 0, url: D.testRunUrl(run.id), error: run._resultError || '' };
-      }),
-      testPlans: Object.keys(planMap).map(function (id) { return { id: id, name: planMap[id] }; }), testPlanWarning: planError,
-      matchedResults: matchedResults, pointMatches: pointMatches, pointErrors: pointErrors, pointSource: pointSource, summary: summary, loadedAt: new Date().toISOString()
-    };
+      })
+    });
+    } catch (runLoadError) {
+      // Test Runs only feed the Insights run list; a failure here must not discard Test Point outcomes.
+      D.S.testResults = Object.assign({}, D.S.testResults, { runsStatus: 'error', runsError: String((runLoadError && runLoadError.message) || runLoadError), runs: [] });
+    }
   };
   D.isFailedTestOutcome = function (outcome) { return /^(failed|blocked|aborted|error|timeout)$/i.test(String(outcome || '').trim()); };
   D.testResultSummary = function (cases) {
@@ -784,6 +793,7 @@
   D.loadSupplementalData = async function (base, cases) {
     D.S.testResults = { status: 'loading', runs: [] };
     await D.loadTestResults(base, cases).catch(function (error) {
+      if (D.S.testResults && D.S.testResults.pointsReady) { D.S.testResults.runsStatus = 'error'; D.S.testResults.runsError = String((error && error.message) || error); return; }
       cases.forEach(function (testCase) { testCase.latestResult = null; testCase.latestTestPoint = null; });
       D.S.testResults = { status: 'error', runs: [], error: String((error && error.message) || error), source: 'Azure DevOps Test Plans Test Points / Test Runs / Results' };
     });
@@ -1345,7 +1355,7 @@
   };
   D.testRunsTable = function () {
     var runs = D.S.testResults && D.S.testResults.runs || [];
-    if (!runs.length) return D.el('div', 'empty', D.S.testResults && D.S.testResults.status === 'error' ? 'Test Runs unavailable: ' + D.S.testResults.error : 'No Test Runs found in the last ' + D.CFG.testResultDays + ' days');
+    if (!runs.length) return D.el('div', 'empty', D.S.testResults && D.S.testResults.status === 'error' ? 'Test Runs unavailable: ' + D.S.testResults.error : D.S.testResults && D.S.testResults.runsStatus === 'error' ? 'Test Runs unavailable: ' + D.S.testResults.runsError : D.S.testResults && D.S.testResults.runsStatus === 'loading' ? 'Loading Test Runs from the last ' + D.CFG.testResultDays + ' days …' : 'No Test Runs found in the last ' + D.CFG.testResultDays + ' days');
     var wrap = D.el('div', 'table-scroll'), table = D.el('table'), thead = D.el('thead'), header = D.el('tr');
     ['Run', 'Test Plan', 'State', 'Started', 'Completed', 'Results', 'API status'].forEach(function (label) { header.appendChild(D.el('th', null, label)); }); thead.appendChild(header); table.appendChild(thead);
     var tbody = D.el('tbody'); runs.slice(0, 100).forEach(function (run) {
@@ -2348,7 +2358,7 @@
     var consistencyNote = consistency.allEqual ? ' Phase/Rack counts are consistent at ' + consistency.baseline + ' per Rack.' : ' Phase/Rack count mismatch detected; dashboard retains the actual hierarchy data.';
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
-    var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
+    var testNote = D.S.testResults && (D.S.testResults.status === 'error' || D.S.testResults.runsStatus === 'error') ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
     if (D.S.testResults && D.S.testResults.status === 'ok') testNote += ' Test Point matches: ' + (D.S.testResults.pointMatches || 0) + '/' + allCases.length + ' via ' + (D.S.testResults.pointSource || 'plan scan') + (D.S.testResults.pointErrors && D.S.testResults.pointErrors.length ? ' (' + D.S.testResults.pointErrors.length + ' plan errors)' : '') + '.';
     var timingNote = D.S.lastLoadTiming ? ' Load timing: core ' + D.S.lastLoadTiming.coreMs + 's, supplemental ' + D.S.lastLoadTiming.supplementalMs + 's.' : '';
     var rl = (D.RANGES.filter(function (x) { return x[0] === D.S.range; })[0] || ['', ''])[1];
