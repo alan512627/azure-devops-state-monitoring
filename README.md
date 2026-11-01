@@ -1,10 +1,10 @@
 # Azure DevOps State Monitoring
 
-Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生 Azure DevOps Extension。它能在同一個 Dashboard 切換多個專案 Query，並讀取 Work Items、Test Runs／Results 與 Test Plans，建立 Overview、各 Rack、Insights、Test Features、State、真實測試 Outcome、Priority、Bug、Sample Size、Test Duration、`Number_of_cycles`、週報與快照差異統計。
+Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生 Azure DevOps Extension。它能在同一個 Dashboard 切換多個專案 Query，並讀取 Work Items 與 Test Plans Test Points，建立 Overview、各 Rack、Insights、Test Features、State、真實測試 Outcome、Priority、Bug、Sample Size、Test Duration、`Number_of_cycles`、週報與快照差異統計。
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.25；本分支待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.27；本分支待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
@@ -42,7 +42,7 @@ v1.11.0 在同一個 Query Dashboard 上方新增 **Phase 1** 與 **Phase 2** �
 - Test Features 及週報 CSV／Excel 只匯出目前 Phase，檔名會加入 `Phase-1` 或 `Phase-2`；離線 Dashboard snapshot 仍保存完整 Query 的兩個 Phase。
 - Phase 1／Phase 2 按鈕會顯示當次 Query 具有有效 Phase tag 的實際 Case 數；不會把缺少的 Case 補成固定數量。選擇的 Phase 會保存在目前瀏覽器，下一次開啟仍停留在同一 Phase。
 - Overview 新增 **Phase / Rack Case count consistency** 稽核表，同時列出 Rack #1～#5 在 Phase 1、Phase 2 的實際 included Case 數。只有全部十個數字相同才顯示 `CONSISTENT`；不一致時明確警示，但不會為了湊數搬移、刪除或補造 Case。
-- 每次開啟、F5、**Re-run query** 或自動刷新都會重新讀取兩個 Phase 的最新 Work Item State，並查詢最近 120 天 Test Runs／Results 後依 Case ID 顯示目前可取得的最新 Outcome；同名但 ID 不同的 Phase 1／Phase 2 Case 不會以 Title 誤配。
+- 每次開啟、F5、**Re-run query** 或自動刷新都會重新讀取兩個 Phase 的最新 Work Item State，並以 Case ID 跨所有 Test Plan 查詢 Execute Test Point，顯示目前的 Outcome；同名但 ID 不同的 Phase 1／Phase 2 Case 不會以 Title 誤配。
 
 ## Rack-aware Bug 追蹤
 
@@ -99,13 +99,13 @@ v1.8.6 移除所有固定 Expected Case 數量與 Coverage warning。Case 新增
 
 v1.9.0 新增左側 `Insights` 分頁：
 
-- **真實 Pass／Fail**：每個 Case 的主要 outcome 以 Azure DevOps Test Plans「Execute」頁的 Test Point outcome 為準（由 Test Plan root suite 遞迴讀取並以 Case ID 對應）；只呈現 `Passed`、`Failed`、`Blocked`、`Not Applicable`、`Active` 五種固定分類，分別使用綠、紅、橘、黃、靛色。Test Runs／Results 僅保留作 Insights 的執行清單與補充資料。Pass／Fail Rate 的分母只包含 Test Point 的 `Passed` 與 `Failed`。
-- **快速 Re-query**：核心 Query、Rack、Case 與狀態先完成並呈現 Overview／Rack；Child Bug History 驗證與 Test Runs／Results 會在背景補載，完成後只更新相關統計。Core Work Item、Relation 與 Child Work Item 批次採有限並行，避免循序等待又不造成無限制 API 壓力。背景完成前的卡片不會被當作最終 Bug／Test Result 統計。
-- **Test Runs 明細**：Insights 重新顯示唯讀 Test Runs／Test Plans 明細表；Phase 1 Execution Timeline 在資料較早結束時至少延伸至 2026-11-13，最早日期 bar 與左側分格線保留小間距。
+- **真實 Pass／Fail**：每個 Case 的主要 outcome 以 Azure DevOps Test Plans「Execute」頁的 Test Point outcome 為準（以 `POST _apis/test/points` 依 Case ID 跨所有 Test Plan／Suite 查詢）；只呈現 `Passed`、`Failed`、`Blocked`、`Not Applicable`、`Active` 五種固定分類，分別使用綠、紅、橘、黃、靛色。Pass／Fail Rate 只顯示百分比，分母為選定時間範圍內的全部 Case，與 Outcome 圓餅圖同一基準。
+- **快速 Re-query**：核心 Query、Rack、Case 與狀態先完成並呈現 Overview／Rack；Child Bug History 驗證與 Test Point outcome 會在背景補載，完成後只更新相關統計。Core Work Item、Relation 與 Child Work Item 批次採有限並行，避免循序等待又不造成無限制 API 壓力。背景完成前的卡片不會被當作最終 Bug／Test Result 統計。
+- **Execution Timeline**：Phase 1 Execution Timeline 在資料較早結束時至少延伸至 2026-11-13，最早日期 bar 與左側分格線保留小間距。
 - **Re-query timing**：完成後的提示會回報 core 與 supplemental 的秒數，方便區分主查詢與背景驗證的實際延遲。
-- **Case 結果回填**：Rack 與 Test Features 的每個 Case 顯示最新 Outcome，可連到對應 Test Run；優先以 Case ID 對應，僅在 Title 唯一且完全相符時才退回 Title 對應。
+- **Case 結果回填**：Rack 與 Test Features 的每個 Case 顯示 Execute Test Point Outcome，可連到對應 Test Point；優先以 Case ID 對應，僅在 Title 唯一且完全相符時才退回 Title 對應。
 - **與上次快照比較**：列出 Added、Removed、State Changed，以及本週有更新的 Cases。第一次使用只有基準快照；下一次重新查詢後才會產生差異。
-- **週報匯出**：`Download weekly CSV` 匯出全部 Case 明細；`Download weekly Excel (.xlsx)` 另外包含 Weekly Cases、Test Runs、Snapshot Changes 三個未凍結的工作表，保留 Azure DevOps hyperlinks。
+- **週報匯出**：`Download weekly CSV` 匯出全部 Case 明細；`Download weekly Excel (.xlsx)` 另外包含 Weekly Cases、Snapshot Changes 兩個未凍結的工作表，保留 Azure DevOps hyperlinks。
 
 v1.9.1 移除跨網域 Analytics OData 趨勢與相關 PAT／登入流程，避免 Chrome 顯示原生帳密視窗。Insights 仍保留真實 Test Results、週報與快照比較。
 
