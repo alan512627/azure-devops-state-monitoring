@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.18
+// @version      1.12.20
 // @description  Uses one-decimal maximum percentage formatting, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -70,6 +70,8 @@
     { name: '[EchoFalls][C4142][PSE] EVT - Scale Testing', org: 'https://azurecsi.visualstudio.com', orgName: 'azurecsi', project: 'Dev', queryId: '6e06c765-2ff5-43c4-80c6-e78438eea6d9', queryUrl: 'https://azurecsi.visualstudio.com/Dev/_queries/query/6e06c765-2ff5-43c4-80c6-e78438eea6d9/', builtin: true }
   ];
   D.STATE_COLORS = {"Not Started":"#94a3b8","New":"#60a5fa","Proposed":"#f5b544","Design":"#a78bfa","In Progress":"#818cf8","Active":"#818cf8","Ready":"#38bdf8","Committed":"#22d3ee","Passed":"#34d399","Closed":"#2dd4bf","Done":"#2dd4bf","Completed":"#2dd4bf","Failed":"#f87171","Blocked":"#fb7185","Removed":"#9ca3af","Resolved":"#22d3ee","Paused":"#fbbf24"};
+  D.OUTCOME_COLORS = { Passed: '#34d399', Failed: '#f87171', Blocked: '#fb7185', 'Not Applicable': '#fbbf24', Other: '#c084fc', 'No Result': '#64748b' };
+  D.OUTCOME_ORDER = ['Passed', 'Failed', 'Blocked', 'Not Applicable', 'Other', 'No Result'];
   D.TYPE_COLORS = {"Epic":"#c084fc","Feature":"#38bdf8","System Requirement":"#fbbf24","Test Case":"#34d399","User Story":"#818cf8","Task":"#60a5fa","Bug":"#fb7185","Issue":"#fb923c"};
   D.STATE_ORDER = ["Not Started","New","Proposed","Design","Ready","Committed","Active","In Progress","Paused","Blocked","Failed","Passed","Resolved","Closed","Done","Completed","Removed"];
   D.RANGES = [["all","All time"],["1","Last 1 day"],["3","Last 3 days"],["7","Last 7 days"],["30","Last 30 days"],["60","Last 60 days"]];
@@ -192,10 +194,12 @@
   D.reportPrefix = function () { return D.safeFileName(D.activeQuery().name); };
   D.svg = function (t, a) { var e = document.createElementNS('http://www.w3.org/2000/svg', t); for (var k in a) e.setAttribute(k, a[k]); return e; };
   D.colorFor = function (s) { return D.STATE_COLORS[s] || '#cbd5e1'; };
+  D.outcomeColor = function (s) { return D.OUTCOME_COLORS[s] || '#cbd5e1'; };
   D.orderStates = function (keys) {
     var known = D.STATE_ORDER.filter(function (s) { return keys.indexOf(s) >= 0; });
     return known.concat(keys.filter(function (s) { return D.STATE_ORDER.indexOf(s) < 0; }).sort());
   };
+  D.orderOutcomes = function (keys) { return D.OUTCOME_ORDER.filter(function (s) { return keys.indexOf(s) >= 0; }).concat(keys.filter(function (s) { return D.OUTCOME_ORDER.indexOf(s) < 0; }).sort()); };
   D.chip = function (name, count) { var c = D.el('span', 'chip'); c.style.background = D.colorFor(name); c.textContent = count == null ? name : name + ' ' + count; return c; };
   D.typeColor = function (type) { return D.TYPE_COLORS[type] || '#94a3b8'; };
   D.rgba = function (hex, alpha) {
@@ -402,11 +406,20 @@
         }); });
       var linkedChunks = [];
       for (var k = 0; k < linkedFetchIds.length; k += 200) linkedChunks.push(linkedFetchIds.slice(k, k + 200));
-      var linkedBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
+      // Azure DevOps rejects a workitemsbatch body that combines `fields` and
+      // `$expand: relations` (ConflictingParametersException). Fetch these
+      // independently, then join by work-item ID so Bug validation remains
+      // strict without turning the supplemental section into a hard failure.
+      var linkedRelationBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
         return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: fields, '$expand': 'relations', errorPolicy: 'omit' }) });
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, '$expand': 'relations', errorPolicy: 'omit' }) });
       });
-      linkedBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; linkedRelationsById[it.id] = it.relations || []; }); });
+      var linkedFieldBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
+        return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: fields, errorPolicy: 'omit' }) });
+      });
+      linkedFieldBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; }); });
+      linkedRelationBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) { linkedRelationsById[it.id] = it.relations || []; }); });
       var reciprocalChildIdsOf = {}, parentMismatchCount = 0, unavailableChildCount = 0;
       Object.keys(linkedIdsOf).forEach(function (caseId) {
         Object.keys(linkedIdsOf[caseId]).forEach(function (linkedId) {
@@ -872,6 +885,24 @@
     summary.failRate = D.rate(summary.fail, summary.total);
     return summary;
   };
+  D.resultOutcomeKey = function (outcome) {
+    var value = String(outcome || '').trim().toLowerCase();
+    if (value === 'passed' || value === 'pass') return 'Passed';
+    if (value === 'failed' || value === 'fail') return 'Failed';
+    if (value === 'blocked' || value === 'block') return 'Blocked';
+    if (value === 'not applicable' || value === 'notapplicable' || value === 'n/a' || value === 'na') return 'Not Applicable';
+    return value ? 'Other' : 'No Result';
+  };
+  D.resultOutcomeCounts = function (cases) {
+    var counts = { Passed: 0, Failed: 0, Blocked: 0, 'Not Applicable': 0, Other: 0, 'No Result': 0 };
+    cases.forEach(function (testCase) { counts[D.resultOutcomeKey(testCase.latestResult && testCase.latestResult.outcome)]++; });
+    return counts;
+  };
+  D.resultOutcomeSummary = function (cases) {
+    var counts = D.resultOutcomeCounts(cases), denominator = counts.Passed + counts.Failed;
+    return { counts: counts, passed: counts.Passed, failed: counts.Failed, denominator: denominator,
+      passRate: D.rate(counts.Passed, denominator), failRate: D.rate(counts.Failed, denominator) };
+  };
   D.hasMetric = function (value) {
     return value != null && String(value).trim() !== '';
   };
@@ -1101,8 +1132,9 @@
     return 'M' + x0 + ' ' + y0 + ' A' + R + ' ' + R + ' 0 ' + lg + ' 1 ' + x1 + ' ' + y1 +
       ' L' + x2 + ' ' + y2 + ' A' + r + ' ' + r + ' 0 ' + lg + ' 0 ' + x3 + ' ' + y3 + ' Z';
   };
-  D.pie = function (counts) {
-    var size = 300, keys = D.orderStates(Object.keys(counts)), total = D.sum(counts);
+  D.pie = function (counts, orderFn, colorFn) {
+    orderFn = orderFn || D.orderStates; colorFn = colorFn || D.colorFor;
+    var size = 300, keys = orderFn(Object.keys(counts)), total = D.sum(counts);
     var s = D.svg('svg', { viewBox: '0 0 ' + size + ' ' + size, width: '100%', height: '100%', preserveAspectRatio: 'xMidYMid meet' });
     var cx = size / 2, cy = size / 2, R = size / 2 - 10, r = R * 0.58;
     if (!total) {
@@ -1111,14 +1143,14 @@
       return s;
     }
     if (keys.length === 1) {
-      s.appendChild(D.svg('circle', { cx: cx, cy: cy, r: R, fill: D.colorFor(keys[0]) }));
+      s.appendChild(D.svg('circle', { cx: cx, cy: cy, r: R, fill: colorFn(keys[0]) }));
       s.appendChild(D.svg('circle', { cx: cx, cy: cy, r: r, fill: '#111d33' }));
       var tt = D.svg('title'); tt.textContent = keys[0] + ': ' + counts[keys[0]] + ' (100%)'; s.appendChild(tt);
     } else {
       var a = -Math.PI / 2;
       keys.forEach(function (k) {
         var frac = counts[k] / total, a1 = a + frac * Math.PI * 2;
-        var p = D.svg('path', { d: D.arcPath(cx, cy, R, r, a, a1), fill: D.colorFor(k), stroke: '#0b1220', 'stroke-width': '2' });
+        var p = D.svg('path', { d: D.arcPath(cx, cy, R, r, a, a1), fill: colorFn(k), stroke: '#0b1220', 'stroke-width': '2' });
         var ti = D.svg('title'); ti.textContent = k + ': ' + counts[k] + ' (' + D.percent(frac * 100) + ')';
         p.appendChild(ti); s.appendChild(p);
         if (frac > 0.06) {
@@ -1134,9 +1166,10 @@
     s.appendChild(n1); s.appendChild(n2);
     return s;
   };
-  D.bar = function (counts) {
+  D.bar = function (counts, orderFn, colorFn) {
+    orderFn = orderFn || D.orderStates; colorFn = colorFn || D.colorFor;
     var W = 460, H = 300, L = 40, B = 46, T = 14, Rp = 12;
-    var keys = D.orderStates(Object.keys(counts)), total = D.sum(counts);
+    var keys = orderFn(Object.keys(counts)), total = D.sum(counts);
     var s = D.svg('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', height: '100%', preserveAspectRatio: 'xMidYMid meet' });
     if (!total) { var t0 = D.svg('text', { x: W / 2, y: H / 2, fill: '#8fa3c0', 'text-anchor': 'middle', 'font-size': '14' }); t0.textContent = 'No data in range'; s.appendChild(t0); return s; }
     var max = Math.max.apply(null, keys.map(function (k) { return counts[k]; }));
@@ -1150,8 +1183,8 @@
     var slot = pw / keys.length, bw = Math.min(60, slot * 0.6);
     keys.forEach(function (k, i) {
       var v = counts[k], h = ph * v / max, x = L + slot * i + (slot - bw) / 2, y = T + ph - h;
-      var rect = D.svg('rect', { x: x, y: y, width: bw, height: Math.max(h, 1), fill: D.colorFor(k), rx: 5 });
-      var ti = D.svg('title'); ti.textContent = k + ': ' + v + ' (' + (v * 100 / total).toFixed(1) + '%)'; rect.appendChild(ti);
+      var rect = D.svg('rect', { x: x, y: y, width: bw, height: Math.max(h, 1), fill: colorFn(k), rx: 5 });
+      var ti = D.svg('title'); ti.textContent = k + ': ' + v + ' (' + D.percent(v * 100 / total) + ')'; rect.appendChild(ti);
       s.appendChild(rect);
       var vt = D.svg('text', { x: x + bw / 2, y: y - 5, fill: '#e2e8f0', 'text-anchor': 'middle', 'font-size': '11', 'font-weight': '700' }); vt.textContent = v; s.appendChild(vt);
       var lt = D.svg('text', { x: x + bw / 2, y: T + ph + 16, fill: '#9fb3d0', 'text-anchor': 'middle', 'font-size': '10' });
@@ -1187,11 +1220,13 @@
     });
     return s;
   };
-  D.legend = function (counts) {
+  D.legend = function (counts, orderFn, colorFn) {
+    orderFn = orderFn || D.orderStates; colorFn = colorFn || D.colorFor;
     var wrap = D.el('div', 'legend');
     var total = D.sum(counts);
-    D.orderStates(Object.keys(counts)).forEach(function (k) {
+    orderFn(Object.keys(counts)).forEach(function (k) {
       var c = D.chip(k, counts[k] + ' (' + D.percent(total ? counts[k] * 100 / total : 0) + ')');
+      c.style.background = colorFn(k);
       wrap.appendChild(c);
     });
     return wrap;
@@ -1595,18 +1630,19 @@
     });
     t.appendChild(tb); return t;
   };
-  D.statsTable = function (counts) {
+  D.statsTable = function (counts, orderFn, colorFn, label) {
+    orderFn = orderFn || D.orderStates; colorFn = colorFn || D.colorFor;
     var total = D.sum(counts), t = D.el('table'), thead = D.el('thead'), hr = D.el('tr');
-    ['State', 'Count', 'Share', ''].forEach(function (h, i) { hr.appendChild(D.el('th', (i === 1 || i === 2) ? 'num' : null, h)); });
+    [label || 'State', 'Count', 'Share', ''].forEach(function (h, i) { hr.appendChild(D.el('th', (i === 1 || i === 2) ? 'num' : null, h)); });
     thead.appendChild(hr); t.appendChild(thead);
-    var tb = D.el('tbody'), keys = D.orderStates(Object.keys(counts));
+    var tb = D.el('tbody'), keys = orderFn(Object.keys(counts));
     if (!keys.length) { var er = D.el('tr'), td = D.el('td', 'empty', 'No data in the selected time range'); td.colSpan = 4; er.appendChild(td); tb.appendChild(er); }
     keys.forEach(function (k) {
-      var tr = D.el('tr'), td1 = D.el('td'); td1.appendChild(D.chip(k)); tr.appendChild(td1);
+      var tr = D.el('tr'), td1 = D.el('td'), chip = D.chip(k); chip.style.background = colorFn(k); td1.appendChild(chip); tr.appendChild(td1);
       tr.appendChild(D.el('td', 'num', String(counts[k])));
-      tr.appendChild(D.el('td', 'num', total ? (counts[k] * 100 / total).toFixed(1) + '%' : '-'));
+      tr.appendChild(D.el('td', 'num', total ? D.percent(counts[k] * 100 / total) : '-'));
       var td4 = D.el('td'), bar = D.el('div', 'bar'), seg = D.el('div');
-      seg.style.width = (total ? counts[k] * 100 / total : 0) + '%'; seg.style.background = D.colorFor(k);
+      seg.style.width = (total ? counts[k] * 100 / total : 0) + '%'; seg.style.background = colorFn(k);
       bar.appendChild(seg); td4.appendChild(bar); tr.appendChild(td4); tb.appendChild(tr);
     });
     var tr2 = D.el('tr', 'total');
@@ -2051,8 +2087,8 @@
         refs.cFail = D.card('FAIL CASES (BLOCKED) / RATE', '-', '#fb7185');
         refs.cProgress = D.card('IN PROGRESS CASES', 0, '#818cf8');
         refs.cBugs = D.card('BUGS / AFFECTED CASES', '-', '#fb923c');
-        refs.cPass.title = 'Closed Test Cases are counted as Pass. Rate denominator: Test Cases in the selected time range.';
-        refs.cFail.title = 'Blocked Test Cases are counted as Fail. Rate denominator: Test Cases in the selected time range.';
+        refs.cPass.title = 'Latest Azure DevOps Test Result Outcome = Passed. Rate denominator: latest Passed + Failed outcomes in the selected time range.';
+        refs.cFail.title = 'Latest Azure DevOps Test Result Outcome = Failed. Rate denominator: latest Passed + Failed outcomes in the selected time range.';
         refs.cProgress.title = 'Test Cases whose current Azure DevOps State is In Progress.';
         refs.cBugs.title = 'Unique Bugs / affected Test Cases after Child link, reciprocal Parent, and Case History validation.';
         [refs.cRacks, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
@@ -2064,6 +2100,13 @@
         var b2 = D.box('Rack comparison (stacked bar)');
         refs.cmpHost = D.el('div', 'chartwrap'); b2.appendChild(refs.cmpHost);
         grid.appendChild(b1); grid.appendChild(b2); panel.appendChild(grid);
+        var outcomeGrid = D.el('div', 'grid');
+        var ob1 = D.box('Test Result Outcome distribution — all Racks');
+        refs.outcomePieHost = D.el('div', 'chartwrap'); ob1.appendChild(refs.outcomePieHost);
+        refs.outcomeLegendHost = D.el('div'); ob1.appendChild(refs.outcomeLegendHost);
+        var ob2 = D.box('Test Result Outcome counts — all Racks');
+        refs.outcomeBarHost = D.el('div', 'chartwrap'); ob2.appendChild(refs.outcomeBarHost);
+        outcomeGrid.appendChild(ob1); outcomeGrid.appendChild(ob2); panel.appendChild(outcomeGrid);
         var b3 = D.box('Rack × State summary table');
         refs.tableBox = D.el('div'); b3.appendChild(refs.tableBox); panel.appendChild(b3);
         var b4 = D.box('Bug tracking — verified Test Case Child links');
@@ -2084,6 +2127,12 @@
         var rb2 = D.box('State summary table');
         refs.tableBox = D.el('div'); rb2.appendChild(refs.tableBox);
         g.appendChild(rb1); g.appendChild(rb2); panel.appendChild(g);
+        var outcomeBox = D.box(def.rack.label + ' Test Result Outcome distribution');
+        refs.outcomeHost = D.el('div', 'chartwrap'); outcomeBox.appendChild(refs.outcomeHost);
+        refs.outcomeLegendHost = D.el('div'); outcomeBox.appendChild(refs.outcomeLegendHost);
+        var outcomeTableBox = D.box(def.rack.label + ' Outcome summary');
+        refs.outcomeTableBox = D.el('div'); outcomeTableBox.appendChild(refs.outcomeTableBox);
+        var outcomeGrid = D.el('div', 'grid'); outcomeGrid.appendChild(outcomeBox); outcomeGrid.appendChild(outcomeTableBox); panel.appendChild(outcomeGrid);
         var rbBugs = D.box(def.rack.label + ' Bug list — verified Test Case Child links');
         refs.bugSummaryBox = D.el('div', 'rack-bug-reconcile'); rbBugs.appendChild(refs.bugSummaryBox);
         refs.bugBox = D.el('div', 'bug-detail-scroll'); rbBugs.appendChild(refs.bugBox); panel.appendChild(rbBugs);
@@ -2116,9 +2165,9 @@
     D.S.panels.forEach(function (p, i) { var active = i === idx; p.tab.classList.toggle('active', active); p.tab.setAttribute('aria-selected', active ? 'true' : 'false'); p.panel.classList.toggle('active', active); });
     D.refresh();
   };
-  D.drawInto = function (host, counts) {
+  D.drawInto = function (host, counts, orderFn, colorFn) {
     host.innerHTML = '';
-    host.appendChild(D.S.chartType === 'bar' ? D.bar(counts) : D.pie(counts));
+    host.appendChild(D.S.chartType === 'bar' ? D.bar(counts, orderFn, colorFn) : D.pie(counts, orderFn, colorFn));
   };
   D.latest = function (cases) { var b = null; cases.forEach(function (c) { if (c.changed && (!b || c.changed > b)) b = c.changed; }); return b; };
   D.refresh = function () {
@@ -2139,10 +2188,11 @@
         var bugCases = allCases.filter(function (c) { return (c.bugs || []).length > 0; });
         var linkedBugs = bugInventory.map(function (entry) { return entry.bug; });
         var outcomes = D.outcomeSummary(f);
+        var resultOutcomes = D.resultOutcomeSummary(f), resultReady = D.S.testResults && D.S.testResults.status === 'ok';
         p.cCase._val.textContent = allCases.length;
         p.cFiltered._val.textContent = f.length;
-        p.cPass._val.textContent = D.outcomeValue(outcomes.pass, outcomes.passRate);
-        p.cFail._val.textContent = D.outcomeValue(outcomes.fail, outcomes.failRate);
+        p.cPass._val.textContent = resultReady ? D.outcomeValue(resultOutcomes.passed, resultOutcomes.passRate) : '…';
+        p.cFail._val.textContent = resultReady ? D.outcomeValue(resultOutcomes.failed, resultOutcomes.failRate) : '…';
         p.cProgress._val.textContent = outcomes.inProgress;
         p.cBugs._val.textContent = linkedBugs.length + ' / ' + bugCases.length;
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.rackTable(phaseRacks));
@@ -2156,6 +2206,11 @@
         var perRack = phaseRacks.map(function (r) { var m = D.countStates(D.collect(r, 'Test Case').filter(D.inRange)); for (var k in m) stateSet[k] = 1; return m; });
         p.cmpHost.innerHTML = '';
         p.cmpHost.appendChild(D.stacked(phaseRacks.map(function (r) { return r.label; }), perRack, D.orderStates(Object.keys(stateSet))));
+        var outcomeCounts = resultOutcomes.counts;
+        var outcomeChartCounts = resultReady ? outcomeCounts : { 'No Result': f.length };
+        p.outcomePieHost.innerHTML = ''; p.outcomePieHost.appendChild(D.pie(outcomeChartCounts, D.orderOutcomes, D.outcomeColor));
+        p.outcomeBarHost.innerHTML = ''; p.outcomeBarHost.appendChild(D.bar(outcomeChartCounts, D.orderOutcomes, D.outcomeColor));
+        p.outcomeLegendHost.innerHTML = ''; p.outcomeLegendHost.appendChild(D.legend(outcomeChartCounts, D.orderOutcomes, D.outcomeColor));
       } else if (p.kind === 'rack') {
         var cs = D.collect(p.rack, 'Test Case'), fc = cs.filter(D.inRange);
         var rackScope = D.scopeStats(D.S.phase, p.rack);
@@ -2165,12 +2220,17 @@
         p.cFiltered._val.textContent = fc.length;
         p.cBugs._val.textContent = rackBugEntries.length;
         var c2 = D.countStates(fc);
+        var rackResultOutcomes = D.resultOutcomeSummary(fc), rackResultReady = D.S.testResults && D.S.testResults.status === 'ok';
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.statsTable(c2));
         p.bugSummaryBox.textContent = 'Reconciled with Overview ' + p.rack.label + ': ' + rackBugEntries.length + ' unique Bugs · ' + rackOnlyBugs + ' Rack-only · ' + (rackBugEntries.length - rackOnlyBugs) + ' shared across Racks.';
         p.bugSummaryBox.setAttribute('data-rack-bug-count', rackBugEntries.length);
         p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable([p.rack], bugInventory));
         D.drawInto(p.chartHost, c2);
         p.legendHost.innerHTML = ''; p.legendHost.appendChild(D.legend(c2));
+        var rackOutcomeCounts = rackResultReady ? rackResultOutcomes.counts : { 'No Result': fc.length };
+        p.outcomeHost.innerHTML = ''; p.outcomeHost.appendChild(D.pie(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor));
+        p.outcomeLegendHost.innerHTML = ''; p.outcomeLegendHost.appendChild(D.legend(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor));
+        p.outcomeTableBox.innerHTML = ''; p.outcomeTableBox.appendChild(D.statsTable(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor, 'Outcome'));
       }
     });
     var tf = allCases.filter(D.inRange).length, totalLinkedBugs = bugInventory.length;
