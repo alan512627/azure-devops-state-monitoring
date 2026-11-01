@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.23
-// @description  Uses five fixed Execute Test Point outcomes by Rack with distinct colors, compact metrics, and staged background supplemental loading.
+// @version      1.12.24
+// @description  Uses five fixed Execute Test Point outcomes by Rack with suite fallback matching, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -602,8 +602,25 @@
     if (plan == null || plan.id == null || rootSuite == null) return [];
     var url = base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/testplan/Plans/' + encodeURIComponent(plan.id)
       + '/Suites/' + encodeURIComponent(rootSuite) + '/TestPoint?includePointDetails=true&isRecursive=true&api-version=7.1';
-    var response = await D.apiFetch(url);
-    return response.value || [];
+    var response = await D.apiFetch(url), values = response.value || [];
+    if (values.length) return values;
+    var suitesResponse = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/testplan/Plans/' + encodeURIComponent(plan.id) + '/suites?asTreeView=true&api-version=7.1');
+    var suites = [];
+    (function flattenSuite(list) { (list || []).forEach(function (suite) { suites.push(suite); flattenSuite(suite.children || suite.childSuites || []); }); })(suitesResponse.value || []);
+    var suitePoints = await D.mapLimit(suites, 4, async function (suite) {
+      if (!suite || suite.id == null) return [];
+      try {
+        var suiteUrl = base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/testplan/Plans/' + encodeURIComponent(plan.id)
+          + '/Suites/' + encodeURIComponent(suite.id) + '/TestPoint?includePointDetails=true&api-version=7.1';
+        var suiteResponse = await D.apiFetch(suiteUrl);
+        return suiteResponse.value || [];
+      } catch (error) { return []; }
+    });
+    return [].concat.apply([], suitePoints);
+  };
+  D.testPointCaseId = function (point) {
+    var ref = point && (point.testCaseReference || point.testCase || point.testCaseRef) || {};
+    return ref.id != null ? String(ref.id) : (point && point.testCaseId != null ? String(point.testCaseId) : '');
   };
   D.testPointResultRecord = function (point) {
     var raw = point && point.results;
@@ -657,7 +674,7 @@
     pointSets.forEach(function (set) {
       if (set.error) pointErrors.push((set.plan && set.plan.name || 'Plan ' + set.plan.id) + ': ' + set.error);
       (set.points || []).forEach(function (point) {
-        var ref = point.testCaseReference || point.testCase || {}, caseId = ref.id != null ? String(ref.id) : '';
+        var ref = point.testCaseReference || point.testCase || point.testCaseRef || {}, caseId = D.testPointCaseId(point);
         var testCase = byId[caseId] || null;
         if (!testCase) {
           var title = ref.name || point.testCaseTitle || point.title || '', matches = byTitle[D.normalizedTitle(title)] || [];
@@ -2301,6 +2318,7 @@
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
+    if (D.S.testResults && D.S.testResults.status === 'ok') testNote += ' Test Point matches: ' + (D.S.testResults.pointMatches || 0) + '/' + allCases.length + (D.S.testResults.pointErrors && D.S.testResults.pointErrors.length ? ' (' + D.S.testResults.pointErrors.length + ' plan errors)' : '') + '.';
     var timingNote = D.S.lastLoadTiming ? ' Load timing: core ' + D.S.lastLoadTiming.coreMs + 's, supplemental ' + D.S.lastLoadTiming.supplementalMs + 's.' : '';
     var rl = (D.RANGES.filter(function (x) { return x[0] === D.S.range; })[0] || ['', ''])[1];
     var ml = (D.MODES.filter(function (x) { return x[0] === D.S.mode; })[0] || ['', ''])[1];
