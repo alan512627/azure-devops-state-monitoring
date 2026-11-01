@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.3
-// @description  Validates exact Phase and Rack Test Case tags before placing Cases in Phase/Rack dashboard views.
+// @version      1.12.4
+// @description  Derives Rack placement from the parent Rack Feature hierarchy and validates exact Phase Test Case tags.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -463,7 +463,12 @@
       var p = parentOf[id]; return !p || (byId[p] && byId[p]['System.WorkItemType'] === 'Epic');
     });
     var racks = rackIds.map(build);
-    racks.forEach(function (r) { var m = /rack\s*#?\s*(\d+)/i.exec(r.title); r.num = m ? +m[1] : 999; r.label = m ? 'Rack ' + m[1] : r.title; });
+    racks.forEach(function (r) {
+      var m = /rack\s*#?\s*(\d+)/i.exec(r.title);
+      r.num = m ? +m[1] : 999;
+      r.label = m ? 'Rack ' + m[1] : r.title;
+      r.rackFeatureId = r.id;
+    });
     racks.sort(function (a, b) { return a.num - b.num; });
     return { racks: racks, count: ids.length };
   };
@@ -632,24 +637,16 @@
     var match = /rack\s*#?\s*0?([1-5])\b/i.exec(String(rack && (rack.label || rack.title) || ''));
     return match ? +match[1] : 0;
   };
-  D.rackFromTags = function (tags) {
-    var found = {}, tokens = D.tagTokens(tags);
-    tokens.forEach(function (token) { var match = /^rack0([1-5])$/.exec(token); if (match) found[match[1]] = 1; });
-    var values = Object.keys(found);
-    return values.length === 1 ? +values[0] : 0;
+  D.placementMatch = function (testCase) {
+    var phase = D.casePhase(testCase);
+    var expectedPhaseTag = phase ? ('C4143_ScaleTest_' + (phase === 'phase2' ? 'Phase2' : 'Phase1')) : 'C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2';
+    if (!phase) return { inPlacement: false, phase: '', reason: 'PHASE TAG MISSING OR CONFLICT', expected: expectedPhaseTag };
+    return { inPlacement: true, phase: phase, reason: 'PLACED', expected: expectedPhaseTag };
   };
-  D.placementMatch = function (testCase, rack) {
-    var phase = D.casePhase(testCase), taggedRack = D.rackFromTags(testCase && testCase.tags), hierarchyRack = D.rackNumber(rack), expectedPhaseTag = phase ? ('C4143_ScaleTest_' + (phase === 'phase2' ? 'Phase2' : 'Phase1')) : 'C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2', expectedRackTag = hierarchyRack ? ('Rack' + String(hierarchyRack).padStart(2, '0')) : 'Rack01-Rack05';
-    if (!phase) return { inPlacement: false, phase: '', rack: taggedRack, reason: 'PHASE TAG MISSING OR CONFLICT', expected: expectedPhaseTag + ' + ' + expectedRackTag };
-    if (!taggedRack) return { inPlacement: false, phase: phase, rack: 0, reason: 'RACK TAG MISSING OR CONFLICT', expected: expectedPhaseTag + ' + ' + expectedRackTag };
-    if (!hierarchyRack || taggedRack !== hierarchyRack) return { inPlacement: false, phase: phase, rack: taggedRack, reason: 'RACK TAG MISMATCH (' + ('Rack' + String(taggedRack).padStart(2, '0')) + ' ≠ ' + expectedRackTag + ')', expected: expectedPhaseTag + ' + ' + expectedRackTag };
-    return { inPlacement: true, phase: phase, rack: taggedRack, reason: 'PLACED', expected: expectedPhaseTag + ' + ' + expectedRackTag };
-  };
-  D.filterNodeForPhase = function (node, phase, keepRoot, rack) {
+  D.filterNodeForPhase = function (node, phase, keepRoot) {
     if (!node) return null;
-    rack = rack || (keepRoot ? node : null);
-    if (node.type === 'Test Case') { var placement = D.placementMatch(node, rack); return placement.inPlacement && placement.phase === phase && D.caseInScope(node) ? node : null; }
-    var children = (node.children || []).map(function (child) { return D.filterNodeForPhase(child, phase, false, rack); }).filter(Boolean);
+    if (node.type === 'Test Case') { var placement = D.placementMatch(node); return placement.inPlacement && placement.phase === phase && D.caseInScope(node) ? node : null; }
+    var children = (node.children || []).map(function (child) { return D.filterNodeForPhase(child, phase, false); }).filter(Boolean);
     if (!keepRoot && !children.length) return null;
     var clone = Object.assign({}, node); clone.children = children; return clone;
   };
@@ -661,8 +658,27 @@
   };
   D.phaseCounts = function () {
     var counts = { phase1: 0, phase2: 0 };
-    (D.S.racks || []).forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (testCase) { var placement = D.placementMatch(testCase, rack); if (placement.inPlacement && D.caseInScope(testCase)) counts[placement.phase]++; }); });
+    (D.S.racks || []).forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (testCase) { var placement = D.placementMatch(testCase); if (placement.inPlacement && D.caseInScope(testCase)) counts[placement.phase]++; }); });
     return counts;
+  };
+  D.rackConsistency = function () {
+    var totals = { phase1: {}, phase2: {} }, expectedRacks = [1, 2, 3, 4, 5];
+    ['phase1', 'phase2'].forEach(function (phase) {
+      (D.S.racks || []).forEach(function (rawRack) {
+        var rackNumber = D.rackNumber(rawRack);
+        if (expectedRacks.indexOf(rackNumber) < 0) return;
+        var filteredRack = D.filterNodeForPhase(rawRack, phase, true);
+        var count = filteredRack ? D.collect(filteredRack, 'Test Case').length : 0;
+        totals[phase][rackNumber] = (totals[phase][rackNumber] || 0) + count;
+      });
+    });
+    var rows = expectedRacks.map(function (rackNumber) {
+      return { rack: rackNumber, phase1: totals.phase1[rackNumber] || 0, phase2: totals.phase2[rackNumber] || 0 };
+    });
+    var values = [];
+    rows.forEach(function (row) { values.push(row.phase1, row.phase2); });
+    var baseline = values.length ? values[0] : 0;
+    return { rows: rows, baseline: baseline, allEqual: baseline > 0 && values.every(function (value) { return value === baseline; }) };
   };
   D.scopeStats = function (phase, rack) {
     phase = phase || D.S.phase || 'phase1';
@@ -670,7 +686,7 @@
     (D.S.racks || []).forEach(function (rawRack) {
       if (rack && String(rawRack.id || rawRack.label) !== String(rack.id || rack.label)) return;
       D.collect(rawRack, 'Test Case').forEach(function (testCase) {
-        var placement = D.placementMatch(testCase, rawRack);
+        var placement = D.placementMatch(testCase);
         if (placement.phase && placement.phase !== phase) return;
         var titleMatch = D.caseScopeMatch(testCase), match = placement.inPlacement ? titleMatch : { inScope: false, reason: placement.reason, expectedTitle: placement.expected }, entry = { testCase: testCase, rack: rawRack, match: match, placement: placement };
         (match.inScope ? included : excluded).push(entry);
@@ -678,7 +694,7 @@
     });
     return {
       included: included, excluded: excluded,
-      placementErrors: excluded.filter(function (entry) { return entry.placement && !entry.placement.inPlacement; }),
+      phaseTagErrors: excluded.filter(function (entry) { return entry.placement && !entry.placement.inPlacement; }),
       titleMismatches: excluded.filter(function (entry) { return entry.match.reason === 'TITLE MISMATCH'; }),
       notApproved: excluded.filter(function (entry) { return entry.match.reason === 'NOT APPROVED'; })
     };
@@ -1265,7 +1281,7 @@
   D.CSS += "\n.query-control{display:inline-flex;gap:6px;align-items:center}.query-control select{min-width:260px;max-width:420px}.query-modal-backdrop{position:fixed;inset:0;z-index:200;background:rgba(3,8,18,.78);display:flex;align-items:center;justify-content:center;padding:20px}.query-modal{width:min(760px,100%);max-height:calc(100vh - 40px);overflow:auto;background:#101b30;border:1px solid #35527a;border-radius:12px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.58)}.query-modal-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.query-modal h2{margin:0;font-size:18px}.query-form{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(300px,1.6fr) auto;gap:10px;align-items:end;padding:12px;border:1px solid #253858;border-radius:9px;background:#0c1729}.query-form label{display:grid;gap:5px;color:#9fb3d0;font-size:11px}.query-form input{width:100%;min-width:0}.query-help{margin:8px 0 12px;color:#8fa3c0;font-size:11px}.query-list{display:grid;gap:7px}.query-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border:1px solid #253858;border-radius:8px;background:#0f1a2e}.query-list-name{font-weight:700;color:#dbeafe;overflow-wrap:anywhere}.query-list-meta{margin-top:3px;color:#8fa3c0;font-size:11px;overflow-wrap:anywhere}.query-error{min-height:18px;margin-top:8px;color:#fda4af;font-size:12px}@media(max-width:900px){.query-control select{min-width:190px;max-width:300px}.query-form{grid-template-columns:1fr}.query-form button{width:100%}}@media(max-width:620px){.query-control{width:100%}.query-control select{flex:1;min-width:0;max-width:none}.query-modal-backdrop{padding:8px}.query-modal{max-height:calc(100vh - 16px);padding:12px}}";
   D.CSS += "\n@media(max-width:620px){.query-control label{flex:1;min-width:0}.query-control select{width:100%}}";
   D.CSS += "\n.phase-tabs{display:flex;gap:10px;padding:12px 20px 0;border-bottom:1px solid #1e2b45;background:#0b1220}.phase-tab{flex:0 1 260px;min-height:44px;padding:9px 20px;border-radius:9px 9px 0 0;background:#111d33;color:#9fb3d0;border:1px solid #253858;border-bottom:0;font-size:14px;font-weight:700}.phase-tab[data-phase='phase1']{--phase-accent:#38bdf8}.phase-tab[data-phase='phase2']{--phase-accent:#c084fc}.phase-tab.active{background:#172742;color:#fff;box-shadow:inset 0 4px 0 var(--phase-accent)}.phase-tab:hover{background:#1b3151}@media(max-width:620px){.phase-tabs{padding:9px 10px 0;gap:6px}.phase-tab{flex:1;min-width:0;padding:8px 6px;font-size:12px}}";
-  D.CSS += "\n.scope-audit-summary{margin:0 0 8px;color:#bfdbfe;font-size:12px}.scope-audit-ok{padding:8px 10px;border:1px solid #1f6f5c;border-radius:7px;background:rgba(45,212,191,.09);color:#99f6e4;font-size:12px}.scope-audit-details{border:1px solid #7a5a1c;border-radius:8px;background:rgba(245,181,68,.08);overflow:hidden}.scope-audit-details>summary{cursor:pointer;padding:10px 12px;color:#fde68a;font-weight:700;font-size:12px}.scope-audit-details .table-scroll{padding:0 10px 10px}.scope-audit-details table{min-width:1080px}.scope-audit-details td:nth-child(4),.scope-audit-details td:nth-child(5){min-width:330px}.scope-reason{font-size:10px;font-weight:800;white-space:nowrap}.scope-reason.mismatch{color:#fde68a}.scope-reason.not-approved{color:#fda4af}";
+  D.CSS += "\n.scope-audit-summary{margin:0 0 8px;color:#bfdbfe;font-size:12px}.scope-audit-ok{padding:8px 10px;border:1px solid #1f6f5c;border-radius:7px;background:rgba(45,212,191,.09);color:#99f6e4;font-size:12px}.scope-audit-details{border:1px solid #7a5a1c;border-radius:8px;background:rgba(245,181,68,.08);overflow:hidden}.scope-audit-details>summary{cursor:pointer;padding:10px 12px;color:#fde68a;font-weight:700;font-size:12px}.scope-audit-details .table-scroll{padding:0 10px 10px}.scope-audit-details table{min-width:1080px}.scope-audit-details td:nth-child(4),.scope-audit-details td:nth-child(5){min-width:330px}.scope-reason{font-size:10px;font-weight:800;white-space:nowrap}.scope-reason.mismatch{color:#fde68a}.scope-reason.not-approved{color:#fda4af}.rack-consistency{display:grid;gap:10px}.rack-consistency-alert{padding:8px 10px;color:#fde68a;font-size:12px}.consistency-yes{color:#99f6e4}.consistency-no{color:#fda4af}";
   D.CSS += "\n.timeline-intro{margin:2px 0 10px;color:#9fb3d0;font-size:12px}.timeline-controls{display:grid;grid-template-columns:180px 210px minmax(240px,1fr);gap:10px;margin:0 0 10px}.timeline-controls label{display:grid;gap:4px;color:#9fb3d0;font-size:11px}.timeline-controls select,.timeline-controls input{width:100%;min-width:0}.timeline-legend{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 10px;color:#a9bdd8;font-size:11px}.timeline-legend-item{display:inline-flex;align-items:center;gap:6px}.timeline-swatch{display:inline-block;width:26px;height:8px;border-radius:5px}.timeline-swatch.estimate{border:2px solid #60a5fa;background:transparent}.timeline-swatch.actual{background:#2dd4bf}.timeline-swatch.invalid{border:2px dashed #fb7185;background:rgba(251,113,133,.18)}.timeline-scroll{max-height:70vh;overflow:auto;border:1px solid #253858;border-radius:9px;background:#0c1729}.timeline-canvas{--timeline-track-width:900px;width:calc(360px + var(--timeline-track-width));min-width:100%}.timeline-grid-row{display:grid;grid-template-columns:360px var(--timeline-track-width);min-height:48px;border-bottom:1px solid #1c2942}.timeline-grid-row:last-child{border-bottom:0}.timeline-grid-row:nth-child(even)>.timeline-track{background-color:rgba(21,35,65,.35)}.timeline-label{position:sticky;left:0;z-index:2;display:flex;flex-direction:column;justify-content:center;min-width:0;padding:6px 10px;background:#101d33;border-right:1px solid #253858}.timeline-case-link{font-size:11px;font-weight:700}.timeline-case-title{margin-top:2px;color:#d7e3f4;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-track{position:relative;background-image:linear-gradient(to right,rgba(53,84,119,.22) 1px,transparent 1px);background-size:10% 100%}.timeline-bar{position:absolute;height:10px;min-width:7px;border-radius:999px;z-index:1}.timeline-bar.estimate{top:8px;border:2px solid #60a5fa;background:rgba(96,165,250,.12)}.timeline-bar.actual{top:27px;background:#2dd4bf;box-shadow:0 0 0 1px rgba(153,246,228,.22)}.timeline-bar.invalid{border:2px dashed #fb7185!important;background:rgba(251,113,133,.24)!important}.timeline-bar.point{width:8px!important;border-radius:50%}.timeline-header{position:sticky;top:0;z-index:6;min-height:42px;background:#132039}.timeline-header .timeline-label{z-index:7;background:#132039;font-size:11px;font-weight:700;color:#dbeafe}.timeline-axis{background:#132039}.timeline-tick{position:absolute;top:12px;transform:translateX(-50%);color:#8fa3c0;font-size:10px;white-space:nowrap}.timeline-tick:first-child{transform:none}.timeline-tick:last-child{transform:translateX(-100%)}.timeline-audit{margin-top:12px;border:1px solid #7a5a1c;border-radius:8px;background:rgba(245,181,68,.06);overflow:hidden}.timeline-audit>summary{cursor:pointer;padding:10px 12px;color:#fde68a;font-size:12px;font-weight:700}.timeline-audit .table-scroll{padding:0 10px 10px}.timeline-audit table{min-width:1120px}.timeline-audit td:nth-child(2){min-width:360px}.timeline-issue{color:#fda4af;font-weight:700}@media(max-width:720px){.timeline-controls{grid-template-columns:1fr}.timeline-canvas{width:calc(250px + var(--timeline-track-width))}.timeline-grid-row{grid-template-columns:250px var(--timeline-track-width)}.timeline-case-title{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.timeline-scroll{max-height:65vh}}";
   D.CSS += "\n.timeline-label-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}.timeline-detail-toggle{flex:none;padding:3px 7px;border-radius:5px;font-size:10px;line-height:1.2;background:#193657;color:#bae6fd;border-color:#2d527d}.timeline-detail-toggle:hover{background:#214a74}.timeline-detail-toggle:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}.timeline-detail-row{display:none;grid-template-columns:360px var(--timeline-track-width);min-height:92px;border-bottom:1px solid #2d527d;background:#0d192c}.timeline-detail-row.open{display:grid}.timeline-detail-card{position:sticky;left:0;z-index:3;padding:8px 10px;background:#13243c;border-right:1px solid #35618f;box-shadow:inset 3px 0 0 #38bdf8}.timeline-detail-title{margin-bottom:7px;color:#dbeafe;font-size:11px;font-weight:700}.timeline-detail-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.timeline-detail-field{display:grid;gap:2px;padding:5px 6px;border-radius:6px;background:#0f1a2e;border:1px solid #253858}.timeline-detail-field.actual{border-left:3px solid #2dd4bf}.timeline-detail-field.estimate{border-left:3px solid #60a5fa}.timeline-detail-key{color:#8fa3c0;font-size:9px;text-transform:uppercase;letter-spacing:.03em}.timeline-detail-value{color:#f0f6ff;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}.timeline-detail-spacer{background-image:linear-gradient(to right,rgba(53,84,119,.16) 1px,transparent 1px);background-size:10% 100%}@media(max-width:720px){.timeline-detail-row{grid-template-columns:250px var(--timeline-track-width);min-height:154px}.timeline-detail-fields{grid-template-columns:1fr}.timeline-detail-toggle{padding:4px 6px;font-size:9px}.timeline-case-link{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-detail-value{font-size:10px}}";
   D.CSS += "\n.feature-table{min-width:1980px!important}";
@@ -1295,15 +1311,15 @@
     var stats = D.scopeStats(phase, rack), wrap = D.el('div', 'scope-audit');
     wrap.setAttribute('data-scope-included', stats.included.length);
     wrap.setAttribute('data-scope-excluded', stats.excluded.length);
-    wrap.appendChild(D.el('p', 'scope-audit-summary', 'Every included Case must have an exact approved title, the exact C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2 tag, and a Rack01-Rack05 tag matching its hierarchy Rack. All statistics, charts, Bugs, Test Result mapping, snapshots, and exports use only those Cases.'));
+    wrap.appendChild(D.el('p', 'scope-audit-summary', 'Every included Case must have an exact approved title and the exact C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2 tag. Rack is derived only from the enclosing Rack Feature title in the Azure DevOps hierarchy; Rack01-Rack05 Case tags are not used for placement. All statistics, charts, Bugs, Test Result mapping, snapshots, and exports use only those Cases.'));
     if (!stats.excluded.length) {
       wrap.appendChild(D.el('div', 'scope-audit-ok', 'No additional ' + D.phaseLabel(phase) + ' Test Cases were found outside the approved scope.'));
       return wrap;
     }
-    var details = D.el('details', 'scope-audit-details'), summary = D.el('summary', null, stats.excluded.length + ' Test Case' + (stats.excluded.length === 1 ? '' : 's') + ' excluded: ' + stats.placementErrors.length + ' Phase/Rack tag issue / ' + stats.titleMismatches.length + ' title mismatch / ' + stats.notApproved.length + ' not approved');
+    var details = D.el('details', 'scope-audit-details'), summary = D.el('summary', null, stats.excluded.length + ' Test Case' + (stats.excluded.length === 1 ? '' : 's') + ' excluded: ' + stats.phaseTagErrors.length + ' Phase tag issue / ' + stats.titleMismatches.length + ' title mismatch / ' + stats.notApproved.length + ' not approved');
     details.appendChild(summary);
     var scroll = D.el('div', 'table-scroll'), table = D.el('table'), head = D.el('thead'), headRow = D.el('tr');
-    ['Hierarchy Rack', 'Case', 'Reason', 'Current title', 'Case tags', 'Expected tag / approved title', 'State'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
+    ['Rack Feature', 'Case', 'Reason', 'Current title', 'Case tags', 'Expected tag / approved title', 'State'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
     head.appendChild(headRow); table.appendChild(head);
     var body = D.el('tbody');
     stats.excluded.sort(function (a, b) { return (a.rack.num || 999) - (b.rack.num || 999) || String(a.testCase.title).localeCompare(String(b.testCase.title)); }).forEach(function (entry) {
@@ -1318,6 +1334,26 @@
       body.appendChild(row);
     });
     table.appendChild(body); scroll.appendChild(table); details.appendChild(scroll); wrap.appendChild(details); return wrap;
+  };
+  D.rackConsistencyPanel = function () {
+    var audit = D.rackConsistency(), wrap = D.el('div', 'rack-consistency');
+    wrap.setAttribute('data-consistency', audit.allEqual ? 'consistent' : 'mismatch');
+    wrap.setAttribute('data-case-count', audit.baseline);
+    var message = audit.allEqual
+      ? 'CONSISTENT — every Rack Feature has ' + audit.baseline + ' validated Case(s) in both Phase 1 and Phase 2.'
+      : 'MISMATCH — actual validated Case counts differ. No Case has been added, removed, or moved to force equality.';
+    wrap.appendChild(D.el('div', audit.allEqual ? 'scope-audit-ok' : 'scope-audit-details rack-consistency-alert', message));
+    var scroll = D.el('div', 'table-scroll'), table = D.el('table'), head = D.el('thead'), headRow = D.el('tr');
+    ['Rack Feature title', 'Phase 1 Cases', 'Phase 2 Cases', 'Consistent'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
+    head.appendChild(headRow); table.appendChild(head);
+    var body = D.el('tbody');
+    audit.rows.forEach(function (row) {
+      var tr = D.el('tr'); tr.setAttribute('data-rack-number', row.rack); tr.setAttribute('data-phase1-count', row.phase1); tr.setAttribute('data-phase2-count', row.phase2);
+      tr.appendChild(D.el('td', null, 'Rack #' + row.rack)); tr.appendChild(D.el('td', null, row.phase1)); tr.appendChild(D.el('td', null, row.phase2));
+      tr.appendChild(D.el('td', 'scope-reason ' + (row.phase1 === row.phase2 && row.phase1 === audit.baseline ? 'consistency-yes' : 'consistency-no'), row.phase1 === row.phase2 && row.phase1 === audit.baseline ? 'YES' : 'NO'));
+      body.appendChild(tr);
+    });
+    table.appendChild(body); scroll.appendChild(table); wrap.appendChild(scroll); return wrap;
   };
   D.executionInfo = function (testCase) {
     var execution = testCase && testCase.execution || {};
@@ -1919,10 +1955,11 @@
         refs.cFail.title = 'Blocked Test Cases are counted as Fail. Rate denominator: Test Cases in the selected time range.';
         refs.cProgress.title = 'Test Cases whose current Azure DevOps State is In Progress.';
         refs.cBugs.title = 'Unique Bugs / affected Test Cases after Child link, reciprocal Parent, and Case History validation.';
-        refs.cExcluded.title = 'Query Test Cases whose title is not an exact match to one of the 41 approved titles. These are excluded from every statistic and export.';
+        refs.cExcluded.title = 'Query Test Cases excluded because their title is not an exact match to one of the 41 approved titles, or their Phase tag is missing or conflicted. These are excluded from every statistic and export.';
         [refs.cRacks, refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs, refs.cExcluded].forEach(function (c) { cards.appendChild(c); });
         var stickyTop = D.el('div', 'panel-sticky'); stickyTop.appendChild(cards); panel.appendChild(stickyTop);
         var scopeAudit = D.box('Scope filter audit — excluded from statistics'); refs.scopeBox = D.el('div'); scopeAudit.appendChild(refs.scopeBox); panel.appendChild(scopeAudit);
+        var consistencyAudit = D.box('Phase / Rack Case count consistency'); refs.consistencyBox = D.el('div'); consistencyAudit.appendChild(refs.consistencyBox); panel.appendChild(consistencyAudit);
         var grid = D.el('div', 'grid');
         var b1 = D.box('Test Case state distribution — all Racks');
         refs.chartHost = D.el('div', 'chartwrap'); b1.appendChild(refs.chartHost);
@@ -1948,7 +1985,7 @@
         refs.cBugs = D.card('CHILD BUGS', 0, '#f87171');
         refs.cExcluded = D.card('OUT OF SCOPE', 0, '#f5b544');
         refs.cBugs.title = 'Unique Bugs whose Child link, reciprocal Parent, and Case History all match this Rack\'s Test Case.';
-        refs.cExcluded.title = 'Test Cases in this Rack and Phase whose title is not an exact match to the approved 41-title scope.';
+        refs.cExcluded.title = 'Test Cases in this Rack Feature and Phase excluded because their title is not an exact match to the approved 41-title scope, or their Phase tag is missing or conflicted.';
         [refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cBugs, refs.cExcluded].forEach(function (c) { cards.appendChild(c); });
         var rackSticky = D.el('div', 'panel-sticky'); rackSticky.appendChild(cards); panel.appendChild(rackSticky);
         var rackScopeAudit = D.box(def.rack.label + ' scope filter audit'); refs.scopeBox = D.el('div'); rackScopeAudit.appendChild(refs.scopeBox); panel.appendChild(rackScopeAudit);
@@ -2025,6 +2062,7 @@
         p.cBugs._val.textContent = linkedBugs.length + ' / ' + bugCases.length;
         p.cExcluded._val.textContent = phaseScope.excluded.length;
         p.scopeBox.innerHTML = ''; p.scopeBox.appendChild(D.scopeAuditPanel(D.S.phase));
+        p.consistencyBox.innerHTML = ''; p.consistencyBox.appendChild(D.rackConsistencyPanel());
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.rackTable(phaseRacks));
         p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(f));
         p.metricBox.innerHTML = ''; p.metricBox.appendChild(D.metricInventoryPanel(f));
@@ -2063,7 +2101,9 @@
     });
     var tf = allCases.filter(D.inRange).length, totalLinkedBugs = bugInventory.length;
     var activeScope = D.scopeStats(D.S.phase), excludedCount = activeScope.excluded.length;
-    var scopeNote = ' Scope filter: ' + allCases.length + ' Case(s) included after exact title, Phase, and Rack tag validation; ' + activeScope.placementErrors.length + ' Phase/Rack tag issue(s), ' + activeScope.titleMismatches.length + ' title mismatch(es), and ' + activeScope.notApproved.length + ' not-approved Case(s) excluded.';
+    var consistency = D.rackConsistency();
+    var scopeNote = ' Scope filter: ' + allCases.length + ' Case(s) included after exact title and Phase tag validation; ' + activeScope.phaseTagErrors.length + ' Phase tag issue(s), ' + activeScope.titleMismatches.length + ' title mismatch(es), and ' + activeScope.notApproved.length + ' not-approved Case(s) excluded. Rack comes from the enclosing Rack Feature title.';
+    var consistencyNote = consistency.allEqual ? ' Phase/Rack counts are consistent at ' + consistency.baseline + ' per Rack.' : ' Phase/Rack count mismatch detected; dashboard retains the actual hierarchy data.';
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
@@ -2072,12 +2112,12 @@
     var src = D.S.snapshotMode ? ('Offline snapshot (' + D.fmt(D.S.loadedAt) + ')') : (ml + ' · ' + D.fmt(D.S.loadedAt) + ' query re-run');
     requestAnimationFrame(D.fitCardValues);
     if (!tf && allCases.length) {
-      D.setStatus(src + ': loaded ' + allCases.length + ' test cases, but nothing was updated within "' + rl + '" — charts are empty. Latest change: ' + D.fmt(D.latest(allCases)) + '.' + scopeNote + bugNote + metricNote + testNote, 'warn');
+      D.setStatus(src + ': loaded ' + allCases.length + ' test cases, but nothing was updated within "' + rl + '" — charts are empty. Latest change: ' + D.fmt(D.latest(allCases)) + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote, 'warn');
     } else if (phaseRacks.length) {
       var phaseCounts = D.phaseCounts();
-      D.setStatus(src + ': ' + D.phaseLabel(D.S.phase) + ' has ' + phaseRacks.length + ' racks, ' + allCases.length + ' approved test cases, ' + totalLinkedBugs + ' verified Child Bugs; "' + rl + '" contains ' + tf + ' updated items. Query split: Phase 1 ' + phaseCounts.phase1 + ' / Phase 2 ' + phaseCounts.phase2 + '.' + scopeNote + bugNote + metricNote + testNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote || excludedCount) ? 'warn' : 'info');
+      D.setStatus(src + ': ' + D.phaseLabel(D.S.phase) + ' has ' + phaseRacks.length + ' racks, ' + allCases.length + ' approved test cases, ' + totalLinkedBugs + ' verified Child Bugs; "' + rl + '" contains ' + tf + ' updated items. Query split: Phase 1 ' + phaseCounts.phase1 + ' / Phase 2 ' + phaseCounts.phase2 + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote || excludedCount || !consistency.allEqual) ? 'warn' : 'info');
     } else if (D.S.racks.length) {
-      D.setStatus(src + ': no Test Cases were found for ' + D.phaseLabel(D.S.phase) + ' after exact Phase and Rack Tag validation.' + bugNote + metricNote + testNote, 'warn');
+      D.setStatus(src + ': no Test Cases were found for ' + D.phaseLabel(D.S.phase) + ' after exact Phase Tag validation.' + consistencyNote + bugNote + metricNote + testNote, 'warn');
     }
   };
   D.load = async function () {
