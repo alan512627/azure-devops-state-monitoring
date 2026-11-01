@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.22，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.21，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1246,10 +1246,3 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 若 Case 沒有可對應的 Test Point 或 Test Point API 無法讀取，該 Case 顯示 `No Result`，不會以 Test Run 結果或 Work Item State 代替；Test Point API 的分頁／計畫錯誤會保留在 supplemental warning 中。
 - 官方 API 依據：[Test Point - Get Points List](https://learn.microsoft.com/en-us/rest/api/azure/devops/testplan/test-point/get-points-list?view=azure-devops-rest-7.1)、[Test Plans - List](https://learn.microsoft.com/en-us/rest/api/azure/devops/testplan/test-plans/list?view=azure-devops-rest-7.1)。
 - 本次未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point；正式 live ADO 需重新整理或按 **Re-run query**，並確認畫面來源提示為 `Azure DevOps Test Plans Test Points (Execute)`。
-
-## 52. 2026-11-01 收斂為五種 Execute Test Point outcome（v1.12.22）
-
-- Outcome 僅保留五種：`Passed`、`Failed`、`Blocked`、`Not Applicable`、`Active`；未知、空白或尚未更新的 Test Point outcome 歸入 `Active`，不再顯示 `Other` 或 `No Result`。
-- 固定顏色：Passed 綠色、Failed 紅色、Blocked 橘紅色、Not Applicable 黃色、Active 靛藍色；Overview、Rack summary、圓餅圖、長條圖、legend、Case badge 與 Insights 統一使用同一組顏色。
-- Pass／Fail rate 仍只以 Passed + Failed 為分母，Blocked、Not Applicable、Active 不會被誤算為 Pass 或 Fail。
-- PR #29 以包含 PR #28 Test Point outcome 來源修改的 commit 為基礎；未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point。
