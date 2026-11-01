@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.11
-// @description  Uses one-decimal maximum percentage formatting with a compact dashboard metric surface.
+// @version      1.12.13
+// @description  Uses one-decimal maximum percentage formatting, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -132,7 +132,8 @@
     'R-SCM command to perform various set operations'
   ];
   D.EXCLUDED_CASE_TITLES = [
-    '[System][Functionality] Dynamically Reconfig Glacier Peak / Castle Peak FPGA image (full link teardown)'
+    '[System][Functionality] Dynamically Reconfig Glacier Peak / Castle Peak FPGA image (full link teardown)',
+    '[System][Functionality] Dynamically Reconfig Castle Peak FPGA image (full link teardown)'
   ];
   D.S = {racks:[],loadedAt:null,range:"all",chartType:"pie",panels:[],active:0,phase:"phase1",mode:"live",queries:[],activeQueryKey:'',testResults:{status:"idle",runs:[]},snapshotComparison:null};
   D.el = function (t, c, x) { var e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
@@ -261,10 +262,26 @@
     if (typeof value === 'object') value = value.displayName || value.name || value.uniqueName || value.mail || JSON.stringify(value);
     return String(value).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || '-';
   };
+  D.cacheRead = function (key, maxAge) {
+    try {
+      var raw = localStorage.getItem(key), entry = raw ? JSON.parse(raw) : null;
+      if (!entry || !entry.savedAt || Date.now() - entry.savedAt > maxAge) return null;
+      return entry.value || null;
+    } catch (error) { return null; }
+  };
+  D.cacheWrite = function (key, value) {
+    try { localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), value: value })); } catch (error) { }
+    return value;
+  };
   D.discoverMetricFields = async function (base) {
     var map = {}, specs = D.FIELD_SPECS;
     Object.keys(specs).forEach(function (key) { map[key] = specs[key].fallback || null; });
     D.S.metricFieldWarning = '';
+    var cacheKey = 'dvdashMetricFields:' + D.queryKey(D.CFG), cached = D.cacheRead(cacheKey, 86400000);
+    if (cached && typeof cached === 'object') {
+      Object.keys(cached).forEach(function (key) { map[key] = cached[key]; });
+      return map;
+    }
     try {
       var response = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/fields?api-version=6.0');
       var definitions = response.value || [];
@@ -281,6 +298,7 @@
       });
       var missing = Object.keys(specs).filter(function (key) { return !map[key]; });
       if (missing.length) D.S.metricFieldWarning = 'Custom fields not found: ' + missing.join(', ');
+      D.cacheWrite(cacheKey, map);
     } catch (fieldError) {
       D.S.metricFieldWarning = 'Field discovery failed: ' + String((fieldError && fieldError.message) || fieldError);
     }
@@ -327,7 +345,9 @@
     });
     return { linksOf: found, failures: failures, inspected: caseIds.length };
   };
-  D.runQuery = async function () {
+  D.runQuery = async function (options) {
+    options = options || {};
+    var deferBugHistory = !!options.deferBugHistory;
     D.S.bugLinkWarning = '';
     var base = D.baseFor();
     var wiql = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/wiql/' + D.CFG.queryId + '?api-version=6.0&$top=5000');
@@ -340,13 +360,13 @@
     var extraFields = Object.keys(D.S.metricFields).map(function (key) { return D.S.metricFields[key]; }).filter(Boolean);
     var fields = baseFields.concat(extraFields.filter(function (field, index, list) { return baseFields.indexOf(field) < 0 && list.indexOf(field) === index; }));
     async function fetchCore(requestFields) {
-      var result = [];
-      for (var i = 0; i < ids.length; i += 200) {
-        var batch = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids.slice(i, i + 200), fields: requestFields }) });
-        result = result.concat(batch.value || []);
-      }
-      return result;
+      var chunks = [];
+      for (var i = 0; i < ids.length; i += 200) chunks.push(ids.slice(i, i + 200));
+      var responses = await D.mapLimit(chunks, 3, function (chunk) {
+        return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: requestFields }) });
+      });
+      return responses.reduce(function (result, batch) { return result.concat(batch.value || []); }, []);
     }
     var items = [];
     try {
@@ -359,15 +379,18 @@
     }
     var byId = {};
     items.forEach(function (it) { byId[it.id] = it.fields; });
-    var linkedIdsOf = {}, linkedMetaOf = {}, linkedRelationsById = {}, linkedFetchIds = [], linkedSeen = {};
+    var linkedIdsOf = {}, linkedMetaOf = {}, linkedRelationsById = {}, linkedFetchIds = [], linkedSeen = {}, deferredBugContext = null;
     try {
       var testCaseIds = items.filter(function (it) {
         return it.fields && it.fields['System.WorkItemType'] === 'Test Case' && !D.excludedCaseReason({ title: it.fields['System.Title'] });
       }).map(function (it) { return it.id; });
-      for (var j = 0; j < testCaseIds.length; j += 200) {
-        var relationBatch = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: testCaseIds.slice(j, j + 200), '$expand': 'relations', errorPolicy: 'omit' }) });
-        (relationBatch.value || []).forEach(function (it) {
+      var relationChunks = [];
+      for (var j = 0; j < testCaseIds.length; j += 200) relationChunks.push(testCaseIds.slice(j, j + 200));
+      var relationBatches = await D.mapLimit(relationChunks, 3, function (chunk) {
+        return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, '$expand': 'relations', errorPolicy: 'omit' }) });
+      });
+      relationBatches.forEach(function (relationBatch) { (relationBatch.value || []).forEach(function (it) {
           (it.relations || []).forEach(function (rel) {
             if (rel.rel !== 'System.LinkTypes.Hierarchy-Forward') return;
             var linkedId = D.relationWorkItemId(rel);
@@ -376,13 +399,14 @@
             (linkedIdsOf[it.id] = linkedIdsOf[it.id] || {})[linkedId] = 1;
             if (!linkedSeen[linkedId]) { linkedSeen[linkedId] = 1; linkedFetchIds.push(linkedId); }
           });
-        });
-      }
-      for (var k = 0; k < linkedFetchIds.length; k += 200) {
-        var linkedBatch = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: linkedFetchIds.slice(k, k + 200), fields: fields, '$expand': 'relations', errorPolicy: 'omit' }) });
-        (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; linkedRelationsById[it.id] = it.relations || []; });
-      }
+        }); });
+      var linkedChunks = [];
+      for (var k = 0; k < linkedFetchIds.length; k += 200) linkedChunks.push(linkedFetchIds.slice(k, k + 200));
+      var linkedBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
+        return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: fields, '$expand': 'relations', errorPolicy: 'omit' }) });
+      });
+      linkedBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; linkedRelationsById[it.id] = it.relations || []; }); });
       var reciprocalChildIdsOf = {}, parentMismatchCount = 0, unavailableChildCount = 0;
       Object.keys(linkedIdsOf).forEach(function (caseId) {
         Object.keys(linkedIdsOf[caseId]).forEach(function (linkedId) {
@@ -395,22 +419,28 @@
           else parentMismatchCount++;
         });
       });
-      var historyResult = await D.childLinksFromHistory(base, reciprocalChildIdsOf);
-      linkedMetaOf = historyResult.linksOf;
-      var failedCases = {}, historyMismatchCount = 0;
-      historyResult.failures.forEach(function (failure) { failedCases[failure.id] = 1; });
-      Object.keys(reciprocalChildIdsOf).forEach(function (caseId) {
-        if (failedCases[caseId]) return;
-        Object.keys(reciprocalChildIdsOf[caseId]).forEach(function (linkedId) {
-          if (!linkedMetaOf[caseId] || !linkedMetaOf[caseId][linkedId]) historyMismatchCount++;
+      if (deferBugHistory) {
+        deferredBugContext = { base: base, reciprocalChildIdsOf: reciprocalChildIdsOf, byId: byId,
+          unavailableChildCount: unavailableChildCount, parentMismatchCount: parentMismatchCount };
+        D.S.bugLinkWarning = 'Bug Child links are validating in the background';
+      } else {
+        var historyResult = await D.childLinksFromHistory(base, reciprocalChildIdsOf);
+        linkedMetaOf = historyResult.linksOf;
+        var failedCases = {}, historyMismatchCount = 0;
+        historyResult.failures.forEach(function (failure) { failedCases[failure.id] = 1; });
+        Object.keys(reciprocalChildIdsOf).forEach(function (caseId) {
+          if (failedCases[caseId]) return;
+          Object.keys(reciprocalChildIdsOf[caseId]).forEach(function (linkedId) {
+            if (!linkedMetaOf[caseId] || !linkedMetaOf[caseId][linkedId]) historyMismatchCount++;
+          });
         });
-      });
-      var warningParts = [];
-      if (unavailableChildCount) warningParts.push(unavailableChildCount + ' Child target(s) could not be read');
-      if (parentMismatchCount) warningParts.push(parentMismatchCount + ' Bug Child link(s) had no matching Parent back to the same Case');
-      if (historyMismatchCount) warningParts.push(historyMismatchCount + ' Bug Child link(s) were missing from Case History');
-      if (historyResult.failures.length) warningParts.push('History lookup failed for ' + historyResult.failures.length + ' of ' + historyResult.inspected + ' candidate Case(s)');
-      D.S.bugLinkWarning = warningParts.join('; ');
+        var warningParts = [];
+        if (unavailableChildCount) warningParts.push(unavailableChildCount + ' Child target(s) could not be read');
+        if (parentMismatchCount) warningParts.push(parentMismatchCount + ' Bug Child link(s) had no matching Parent back to the same Case');
+        if (historyMismatchCount) warningParts.push(historyMismatchCount + ' Bug Child link(s) were missing from Case History');
+        if (historyResult.failures.length) warningParts.push('History lookup failed for ' + historyResult.failures.length + ' of ' + historyResult.inspected + ' candidate Case(s)');
+        D.S.bugLinkWarning = warningParts.join('; ');
+      }
     } catch (bugLinkError) {
       linkedIdsOf = {};
       linkedMetaOf = {};
@@ -473,7 +503,47 @@
       r.rackFeatureId = r.id;
     });
     racks.sort(function (a, b) { return a.num - b.num; });
-    return { racks: racks, count: ids.length };
+    return { racks: racks, count: ids.length, deferredBugContext: deferredBugContext };
+  };
+  D.applyBugLinks = function (racks, linkedMetaOf, byId) {
+    function visit(node) {
+      if (node.type === 'Test Case') {
+        node.bugs = Object.keys(linkedMetaOf[node.id] || {}).map(function (linkedId) { return +linkedId; })
+          .filter(function (linkedId) { return byId[linkedId] && byId[linkedId]['System.WorkItemType'] === 'Bug'; })
+          .filter(function (linkedId, index, list) { return list.indexOf(linkedId) === index; })
+          .map(function (linkedId) {
+            var bug = byId[linkedId] || {}, linkMeta = linkedMetaOf[node.id][linkedId] || {};
+            return { id: linkedId, title: bug['System.Title'] || ('Bug #' + linkedId), state: bug['System.State'] || '?',
+              severity: D.fieldValue(bug, D.S.metricFields && D.S.metricFields.severity), priority: D.fieldValue(bug, D.S.metricFields && D.S.metricFields.priority),
+              linkAddedAt: linkMeta.addedAt || null, linkAddedBy: linkMeta.addedBy || '', linkAddedRevision: linkMeta.revision || null };
+          });
+      }
+      (node.children || []).forEach(visit);
+    }
+    (racks || []).forEach(visit);
+  };
+  D.finishDeferredBugValidation = async function (context, racks) {
+    if (!context) return;
+    try {
+      var historyResult = await D.childLinksFromHistory(context.base, context.reciprocalChildIdsOf), linkedMetaOf = historyResult.linksOf;
+      var failedCases = {}, historyMismatchCount = 0;
+      historyResult.failures.forEach(function (failure) { failedCases[failure.id] = 1; });
+      Object.keys(context.reciprocalChildIdsOf).forEach(function (caseId) {
+        if (failedCases[caseId]) return;
+        Object.keys(context.reciprocalChildIdsOf[caseId]).forEach(function (linkedId) {
+          if (!linkedMetaOf[caseId] || !linkedMetaOf[caseId][linkedId]) historyMismatchCount++;
+        });
+      });
+      var warningParts = [];
+      if (context.unavailableChildCount) warningParts.push(context.unavailableChildCount + ' Child target(s) could not be read');
+      if (context.parentMismatchCount) warningParts.push(context.parentMismatchCount + ' Bug Child link(s) had no matching Parent back to the same Case');
+      if (historyMismatchCount) warningParts.push(historyMismatchCount + ' Bug Child link(s) were missing from Case History');
+      if (historyResult.failures.length) warningParts.push('History lookup failed for ' + historyResult.failures.length + ' of ' + historyResult.inspected + ' candidate Case(s)');
+      D.S.bugLinkWarning = warningParts.join('; ');
+      D.applyBugLinks(racks, linkedMetaOf, context.byId);
+    } catch (error) {
+      D.S.bugLinkWarning = String((error && error.message) || error);
+    }
   };
   D.allCases = function (racks) {
     var cases = [];
@@ -2109,21 +2179,23 @@
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
+    var timingNote = D.S.lastLoadTiming ? ' Load timing: core ' + D.S.lastLoadTiming.coreMs + 's, supplemental ' + D.S.lastLoadTiming.supplementalMs + 's.' : '';
     var rl = (D.RANGES.filter(function (x) { return x[0] === D.S.range; })[0] || ['', ''])[1];
     var ml = (D.MODES.filter(function (x) { return x[0] === D.S.mode; })[0] || ['', ''])[1];
     var src = D.S.snapshotMode ? ('Offline snapshot (' + D.fmt(D.S.loadedAt) + ')') : (ml + ' · ' + D.fmt(D.S.loadedAt) + ' query re-run');
     requestAnimationFrame(D.fitCardValues);
     if (!tf && allCases.length) {
-      D.setStatus(src + ': loaded ' + allCases.length + ' test cases, but nothing was updated within "' + rl + '" — charts are empty. Latest change: ' + D.fmt(D.latest(allCases)) + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote, 'warn');
+      D.setStatus(src + ': loaded ' + allCases.length + ' test cases, but nothing was updated within "' + rl + '" — charts are empty. Latest change: ' + D.fmt(D.latest(allCases)) + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote + timingNote, 'warn');
     } else if (phaseRacks.length) {
       var phaseCounts = D.phaseCounts();
-      D.setStatus(src + ': ' + D.phaseLabel(D.S.phase) + ' has ' + phaseRacks.length + ' racks, ' + allCases.length + ' approved test cases, ' + totalLinkedBugs + ' verified Child Bugs; "' + rl + '" contains ' + tf + ' updated items. Query split: Phase 1 ' + phaseCounts.phase1 + ' / Phase 2 ' + phaseCounts.phase2 + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote || excludedCount || !consistency.allEqual) ? 'warn' : 'info');
+      D.setStatus(src + ': ' + D.phaseLabel(D.S.phase) + ' has ' + phaseRacks.length + ' racks, ' + allCases.length + ' approved test cases, ' + totalLinkedBugs + ' verified Child Bugs; "' + rl + '" contains ' + tf + ' updated items. Query split: Phase 1 ' + phaseCounts.phase1 + ' / Phase 2 ' + phaseCounts.phase2 + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote + timingNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote || excludedCount || !consistency.allEqual) ? 'warn' : 'info');
     } else if (D.S.racks.length) {
-      D.setStatus(src + ': no Test Cases were found for ' + D.phaseLabel(D.S.phase) + ' after exact Phase Tag validation.' + consistencyNote + bugNote + metricNote + testNote, 'warn');
+      D.setStatus(src + ': no Test Cases were found for ' + D.phaseLabel(D.S.phase) + ' after exact Phase Tag validation.' + consistencyNote + bugNote + metricNote + testNote + timingNote, 'warn');
     }
   };
   D.load = async function () {
     var modeLabel = (D.MODES.filter(function (m) { return m[0] === D.S.mode; })[0] || ['', ''])[1];
+    var loadStartedAt = (window.performance && performance.now) ? performance.now() : Date.now();
     if (D.S.mode === 'snapshot') {
       var s = D.readSnapshot();
       if (!s || !s.racks || !s.racks.length) {
@@ -2141,14 +2213,28 @@
     D.setStatus('Running the query with "' + modeLabel + '" and fetching work items …', 'info');
     try {
       var previous = D.readSnapshot();
-      var res = await D.runQuery();
+      D.S.lastLoadTiming = null;
+      D.S.testResults = { status: 'loading', runs: [] };
+      var res = await D.runQuery({ deferBugHistory: true });
+      var coreFinishedAt = (window.performance && performance.now) ? performance.now() : Date.now();
       D.S.racks = res.racks; D.S.loadedAt = new Date().toISOString(); D.S.snapshotMode = false;
-      await D.loadSupplementalData(D.baseFor(), D.allScopedCases());
-      D.S.snapshotComparison = D.compareSnapshot(previous);
       document.getElementById('updated').textContent = 'Updated: ' + D.fmt(D.S.loadedAt);
-      D.saveSnapshot(previous);
       if (D.S.active > D.phaseRacks().length + 3) D.S.active = 0;
       D.buildPanels(); D.refresh();
+      D.setStatus('Core Cases loaded. Validating Bugs and loading Test Results in the background …', 'info');
+      D.saveSnapshot(previous);
+      var cases = D.allScopedCases();
+      var bugTask = D.finishDeferredBugValidation(res.deferredBugContext, D.S.racks).then(function () { D.refresh(); });
+      var resultTask = D.loadSupplementalData(D.baseFor(), cases).then(function () { D.refresh(); });
+      await Promise.all([
+        bugTask,
+        resultTask
+      ]);
+      var supplementalFinishedAt = (window.performance && performance.now) ? performance.now() : Date.now();
+      D.S.lastLoadTiming = { coreMs: Math.round((coreFinishedAt - loadStartedAt) / 100) / 10, supplementalMs: Math.round((supplementalFinishedAt - coreFinishedAt) / 100) / 10 };
+      D.S.snapshotComparison = D.compareSnapshot(previous);
+      D.saveSnapshot(previous);
+      D.refresh();
     } catch (e) {
       var m = String((e && e.message) || e);
       var hint = '';
