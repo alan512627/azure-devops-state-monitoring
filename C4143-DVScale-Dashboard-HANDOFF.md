@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.11，工作分支已發布，待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.12，工作分支已發布，待合併 `main`） |
 | 最新腳本大小 | 196,259 bytes；SHA-256 `5671F345114BAEC56B0BFB8E7F4DBB1633E869E71B64F649B12BEAAAAAA7B25F` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1177,3 +1177,12 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - Number_of_cycles 仍保留在資料模型與既有 Excel 匯出結構，這次只移除 dashboard 畫面上的統計與欄位，不影響資料讀取相容性。
 - `node --check`、`git diff --check`、Extension `npm run package` 通過；fixture 確認 Overview／Rack 不再顯示 Number_of_cycles 統計，Test Features 也不再顯示 Cycles 欄位，Phase 1／2 仍各 205、每 Rack 41。正式 live ADO 仍需登入後按 **Re-run query**。
 - userscript v1.12.11：196,259 bytes，SHA-256 `5671F345114BAEC56B0BFB8E7F4DBB1633E869E71B64F649B12BEAAAAAA7B25F`。Extension v1.3.11 VSIX 為 64,140 bytes，SHA-256 `DF76914D4E0FA70E993A64010098019A2705DA4304DBB6F745DA405CEBC5E60C`；讀回 VSIX 確認 bundled userscript 為 v1.12.11。修正將追加到 Draft PR #21。
+
+## 43. 2026-11-01 Re-query 分階段載入與 Phase 2 Rack 1 排除（v1.12.12）
+
+- 新增指定排除 title：`[System][Functionality] Dynamically Reconfig Castle Peak FPGA image (full link teardown)`，與既有 Glacier Peak／Castle Peak 變體使用相同 normalized title 規則；因此 Phase 2 Rack 1 的 Case `#4131905` 不會進入 Overview、Rack、Bug、Test Result、snapshot 或匯出統計。Azure DevOps Work Item 本身未被修改。
+- Re-query 改為兩階段：先完成 WIQL、核心 Work Items、Rack hierarchy、Case State 與主要畫面，立即建立 Overview／Rack／Test Features；Child Bug History 驗證與 Test Runs／Results 在背景並行補載，完成後再更新 Bug、結果與 Insights 統計。
+- Core Work Item、Test Case relation、Child Work Item 的 200-ID 批次改用最多 3 個有限並行 worker；Bug History 仍維持最多 6 個 Case 並行，避免無限制請求造成 Azure DevOps throttling。
+- 背景完成前狀態會顯示 `Core Cases loaded. Validating Bugs and loading Test Results in the background …`；暫時畫面不會把未完成的 Bug／Test Result 驗證當成最終統計。
+- `node --check C4143-DVScale-Dashboard.user.js` 與 `git diff --check` 通過。尚未以登入中的正式 Azure DevOps live query 測量實際秒數；fixture／offline snapshot 可驗證排除與畫面流程，正式頁面仍需按 **Re-run query** 確認 Phase 2 Rack 1 的實際 Case 數。
+- userscript v1.12.12：200,609 bytes，SHA-256 `EBEBB518A2D8A4A235B6515FFA2987922B9AB97A81EA9D4AFD1342B41C936D80`。Extension v1.3.12 VSIX 為 64,828 bytes，SHA-256 `47AED4D37F2D441BB6A9DB2355EB44DD68DE7BD90B0047863CAF6CB0B5859459`；`npm run package`（TypeScript、esbuild、VSIX）通過。
