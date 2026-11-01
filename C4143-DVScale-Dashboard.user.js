@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.2
-// @description  Splits Phase 2 only by the exact C4143_ScaleTest_Phase2 Test Case tag while retaining scoped execution timelines.
+// @version      1.12.3
+// @description  Validates exact Phase and Rack Test Case tags before placing Cases in Phase/Rack dashboard views.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -618,20 +618,38 @@
   D.collect = function (node, type, out) { out = out || []; if (node.type === type) out.push(node); (node.children || []).forEach(function (c) { D.collect(c, type, out); }); return out; };
   D.phaseLabel = function (phase) { return phase === 'phase2' ? 'Phase 2' : 'Phase 1'; };
   D.phaseFileLabel = function () { return D.S.phase === 'phase2' ? 'Phase-2' : 'Phase-1'; };
+  D.tagTokens = function (tags) { return String(tags || '').split(/[;,]/).map(function (tag) { return String(tag || '').trim().toLowerCase().replace(/[\s_-]+/g, ''); }).filter(Boolean); };
   D.phaseFromTags = function (tags) {
-    var hasPhase2Tag = String(tags || '').split(/[;,]/).some(function (tag) {
-      var normalized = String(tag || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
-      return normalized === 'c4143scaletestphase2';
-    });
-    return hasPhase2Tag ? 'phase2' : '';
+    var tokens = D.tagTokens(tags), hasPhase1 = tokens.indexOf('c4143scaletestphase1') >= 0, hasPhase2 = tokens.indexOf('c4143scaletestphase2') >= 0;
+    return hasPhase1 === hasPhase2 ? '' : (hasPhase2 ? 'phase2' : 'phase1');
   };
   D.casePhase = function (testCase) {
-    return D.phaseFromTags(testCase && testCase.tags) || 'phase1';
+    return D.phaseFromTags(testCase && testCase.tags);
   };
-  D.filterNodeForPhase = function (node, phase, keepRoot) {
+  D.rackNumber = function (rack) {
+    var number = rack && rack.num;
+    if (+number >= 1 && +number <= 5) return +number;
+    var match = /rack\s*#?\s*0?([1-5])\b/i.exec(String(rack && (rack.label || rack.title) || ''));
+    return match ? +match[1] : 0;
+  };
+  D.rackFromTags = function (tags) {
+    var found = {}, tokens = D.tagTokens(tags);
+    tokens.forEach(function (token) { var match = /^rack0([1-5])$/.exec(token); if (match) found[match[1]] = 1; });
+    var values = Object.keys(found);
+    return values.length === 1 ? +values[0] : 0;
+  };
+  D.placementMatch = function (testCase, rack) {
+    var phase = D.casePhase(testCase), taggedRack = D.rackFromTags(testCase && testCase.tags), hierarchyRack = D.rackNumber(rack), expectedPhaseTag = phase ? ('C4143_ScaleTest_' + (phase === 'phase2' ? 'Phase2' : 'Phase1')) : 'C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2', expectedRackTag = hierarchyRack ? ('Rack' + String(hierarchyRack).padStart(2, '0')) : 'Rack01-Rack05';
+    if (!phase) return { inPlacement: false, phase: '', rack: taggedRack, reason: 'PHASE TAG MISSING OR CONFLICT', expected: expectedPhaseTag + ' + ' + expectedRackTag };
+    if (!taggedRack) return { inPlacement: false, phase: phase, rack: 0, reason: 'RACK TAG MISSING OR CONFLICT', expected: expectedPhaseTag + ' + ' + expectedRackTag };
+    if (!hierarchyRack || taggedRack !== hierarchyRack) return { inPlacement: false, phase: phase, rack: taggedRack, reason: 'RACK TAG MISMATCH (' + ('Rack' + String(taggedRack).padStart(2, '0')) + ' ≠ ' + expectedRackTag + ')', expected: expectedPhaseTag + ' + ' + expectedRackTag };
+    return { inPlacement: true, phase: phase, rack: taggedRack, reason: 'PLACED', expected: expectedPhaseTag + ' + ' + expectedRackTag };
+  };
+  D.filterNodeForPhase = function (node, phase, keepRoot, rack) {
     if (!node) return null;
-    if (node.type === 'Test Case') return D.casePhase(node) === phase && D.caseInScope(node) ? node : null;
-    var children = (node.children || []).map(function (child) { return D.filterNodeForPhase(child, phase, false); }).filter(Boolean);
+    rack = rack || (keepRoot ? node : null);
+    if (node.type === 'Test Case') { var placement = D.placementMatch(node, rack); return placement.inPlacement && placement.phase === phase && D.caseInScope(node) ? node : null; }
+    var children = (node.children || []).map(function (child) { return D.filterNodeForPhase(child, phase, false, rack); }).filter(Boolean);
     if (!keepRoot && !children.length) return null;
     var clone = Object.assign({}, node); clone.children = children; return clone;
   };
@@ -643,7 +661,7 @@
   };
   D.phaseCounts = function () {
     var counts = { phase1: 0, phase2: 0 };
-    (D.S.racks || []).forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (testCase) { if (D.caseInScope(testCase)) counts[D.casePhase(testCase)]++; }); });
+    (D.S.racks || []).forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (testCase) { var placement = D.placementMatch(testCase, rack); if (placement.inPlacement && D.caseInScope(testCase)) counts[placement.phase]++; }); });
     return counts;
   };
   D.scopeStats = function (phase, rack) {
@@ -652,13 +670,15 @@
     (D.S.racks || []).forEach(function (rawRack) {
       if (rack && String(rawRack.id || rawRack.label) !== String(rack.id || rack.label)) return;
       D.collect(rawRack, 'Test Case').forEach(function (testCase) {
-        if (D.casePhase(testCase) !== phase) return;
-        var match = D.caseScopeMatch(testCase), entry = { testCase: testCase, rack: rawRack, match: match };
+        var placement = D.placementMatch(testCase, rawRack);
+        if (placement.phase && placement.phase !== phase) return;
+        var titleMatch = D.caseScopeMatch(testCase), match = placement.inPlacement ? titleMatch : { inScope: false, reason: placement.reason, expectedTitle: placement.expected }, entry = { testCase: testCase, rack: rawRack, match: match, placement: placement };
         (match.inScope ? included : excluded).push(entry);
       });
     });
     return {
       included: included, excluded: excluded,
+      placementErrors: excluded.filter(function (entry) { return entry.placement && !entry.placement.inPlacement; }),
       titleMismatches: excluded.filter(function (entry) { return entry.match.reason === 'TITLE MISMATCH'; }),
       notApproved: excluded.filter(function (entry) { return entry.match.reason === 'NOT APPROVED'; })
     };
@@ -1275,23 +1295,24 @@
     var stats = D.scopeStats(phase, rack), wrap = D.el('div', 'scope-audit');
     wrap.setAttribute('data-scope-included', stats.included.length);
     wrap.setAttribute('data-scope-excluded', stats.excluded.length);
-    wrap.appendChild(D.el('p', 'scope-audit-summary', 'Only exact, character-for-character matches to the 41 approved Test Case titles are included in every statistic, chart, Bug list, Test Result mapping, snapshot comparison, and export.'));
+    wrap.appendChild(D.el('p', 'scope-audit-summary', 'Every included Case must have an exact approved title, the exact C4143_ScaleTest_Phase1 or C4143_ScaleTest_Phase2 tag, and a Rack01-Rack05 tag matching its hierarchy Rack. All statistics, charts, Bugs, Test Result mapping, snapshots, and exports use only those Cases.'));
     if (!stats.excluded.length) {
       wrap.appendChild(D.el('div', 'scope-audit-ok', 'No additional ' + D.phaseLabel(phase) + ' Test Cases were found outside the approved scope.'));
       return wrap;
     }
-    var details = D.el('details', 'scope-audit-details'), summary = D.el('summary', null, stats.excluded.length + ' Test Case' + (stats.excluded.length === 1 ? '' : 's') + ' excluded: ' + stats.titleMismatches.length + ' title mismatch / ' + stats.notApproved.length + ' not approved');
+    var details = D.el('details', 'scope-audit-details'), summary = D.el('summary', null, stats.excluded.length + ' Test Case' + (stats.excluded.length === 1 ? '' : 's') + ' excluded: ' + stats.placementErrors.length + ' Phase/Rack tag issue / ' + stats.titleMismatches.length + ' title mismatch / ' + stats.notApproved.length + ' not approved');
     details.appendChild(summary);
     var scroll = D.el('div', 'table-scroll'), table = D.el('table'), head = D.el('thead'), headRow = D.el('tr');
-    ['Rack', 'Case', 'Reason', 'Current title', 'Expected approved title', 'State'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
+    ['Hierarchy Rack', 'Case', 'Reason', 'Current title', 'Case tags', 'Expected tag / approved title', 'State'].forEach(function (label) { headRow.appendChild(D.el('th', null, label)); });
     head.appendChild(headRow); table.appendChild(head);
     var body = D.el('tbody');
     stats.excluded.sort(function (a, b) { return (a.rack.num || 999) - (b.rack.num || 999) || String(a.testCase.title).localeCompare(String(b.testCase.title)); }).forEach(function (entry) {
       var row = D.el('tr'); row.setAttribute('data-excluded-case-id', entry.testCase.id);
       row.appendChild(D.el('td', null, entry.rack.label || entry.rack.title || 'Rack'));
       var caseCell = D.el('td'), link = D.el('a', null, '#' + entry.testCase.id); link.href = D.wiUrl(entry.testCase.id); link.target = '_blank'; link.rel = 'noopener'; caseCell.appendChild(link); row.appendChild(caseCell);
-      row.appendChild(D.el('td', 'scope-reason ' + (entry.match.reason === 'TITLE MISMATCH' ? 'mismatch' : 'not-approved'), entry.match.reason));
+      row.appendChild(D.el('td', 'scope-reason ' + (entry.match.reason === 'TITLE MISMATCH' ? 'mismatch' : (entry.placement && !entry.placement.inPlacement ? 'mismatch' : 'not-approved')), entry.match.reason));
       row.appendChild(D.el('td', null, entry.testCase.title));
+      row.appendChild(D.el('td', null, entry.testCase.tags || '—'));
       row.appendChild(D.el('td', null, entry.match.expectedTitle || '—'));
       var stateCell = D.el('td'); stateCell.appendChild(D.chip(entry.testCase.state || '?')); row.appendChild(stateCell);
       body.appendChild(row);
@@ -2042,7 +2063,7 @@
     });
     var tf = allCases.filter(D.inRange).length, totalLinkedBugs = bugInventory.length;
     var activeScope = D.scopeStats(D.S.phase), excludedCount = activeScope.excluded.length;
-    var scopeNote = ' Scope filter: ' + allCases.length + ' exact approved-title Case(s) included; ' + activeScope.titleMismatches.length + ' title mismatch(es) and ' + activeScope.notApproved.length + ' not-approved Case(s) excluded.';
+    var scopeNote = ' Scope filter: ' + allCases.length + ' Case(s) included after exact title, Phase, and Rack tag validation; ' + activeScope.placementErrors.length + ' Phase/Rack tag issue(s), ' + activeScope.titleMismatches.length + ' title mismatch(es), and ' + activeScope.notApproved.length + ' not-approved Case(s) excluded.';
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
@@ -2056,7 +2077,7 @@
       var phaseCounts = D.phaseCounts();
       D.setStatus(src + ': ' + D.phaseLabel(D.S.phase) + ' has ' + phaseRacks.length + ' racks, ' + allCases.length + ' approved test cases, ' + totalLinkedBugs + ' verified Child Bugs; "' + rl + '" contains ' + tf + ' updated items. Query split: Phase 1 ' + phaseCounts.phase1 + ' / Phase 2 ' + phaseCounts.phase2 + '.' + scopeNote + bugNote + metricNote + testNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote || excludedCount) ? 'warn' : 'info');
     } else if (D.S.racks.length) {
-      D.setStatus(src + ': no Test Cases were found for ' + D.phaseLabel(D.S.phase) + (D.S.phase === 'phase2' ? ' (requires the Phase2 tag).' : '.') + bugNote + metricNote + testNote, 'warn');
+      D.setStatus(src + ': no Test Cases were found for ' + D.phaseLabel(D.S.phase) + ' after exact Phase and Rack Tag validation.' + bugNote + metricNote + testNote, 'warn');
     }
   };
   D.load = async function () {
