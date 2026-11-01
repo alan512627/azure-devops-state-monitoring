@@ -2,14 +2,14 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 文件版本 | 2.6 |
+| 文件版本 | 2.7 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.4，工作分支已發布，待合併 `main`） |
-| 最新腳本大小 | 196931 bytes（約 192.3 KB） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.6，工作分支已發布，待合併 `main`） |
+| 最新腳本大小 | 199377 bytes（約 194.7 KB） |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
-> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為目前以 Rack Feature hierarchy 為唯一 Rack 來源的規則。前面章節中的「未完成」為當時狀態，最新狀態以第 36 節為準。
+> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為目前移除 Case title 篩選的規則。前面章節中的「未完成」為當時狀態，最新狀態以第 37 節為準。
 
 > **2026-08-14 的 Live Query 曾驗證到 5 Racks × 每櫃 58 Test Cases = 290 Test Cases；這是當時的查詢結果，不再作為固定 Expected 基準。v1.8.6 只顯示每次 Query 的實際數量。文件中的 54／270、58／290 等數值均為各版本當時的驗證紀錄。**
 
@@ -1095,3 +1095,25 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - userscript v1.12.4：196,931 bytes，SHA-256 `7D1AEDD7DE17CCD676B82BB68FC3D9504C878F65F40B2BABAE4A415635EB362B`。Extension v1.3.4 已執行 TypeScript check、esbuild 與 VSIX package；VSIX 為 64,117 bytes，SHA-256 `6994DF18CB9605EA61C4B61229AA5270F2BA58716030AD05BF9C41053573839E`。讀回 VSIX 已確認包含 userscript v1.12.4、`rackConsistency`、Rack Feature-only 說明與 manifest v1.3.4。
 - Browser plugin 不在本工作階段，依既有維護流程用 bundled Playwright 執行 fixture／互動與響應式驗證。正式 Azure DevOps 的實際 Case 數仍須在登入的 Dashboard 按 **Re-run query** 讀回，並以此表確認 Phase 1／Phase 2 與五櫃是否全部相同。
 - 已推送 commit `def55a3` 至 `local/phase-tabs`，並建立 Draft PR [#18](https://github.com/alan512627/azure-devops-state-monitoring/pull/18)（建立時 GitHub 回報 `CLEAN`）。依要求未直接合併 `main`；Tampermonkey 的固定 `main` URL 會在 PR 合併後取得 v1.12.4。
+
+## 37. 2026-11-01 取消 Case title 篩選與超過 41 項人工 review（v1.12.6）
+
+### 37.1 納入與排除規則
+
+- 移除 41 項 title 白名單的所有納入條件。只要 Test Case 位於 Rack Feature hierarchy 之下、並有唯一有效的 `C4143_ScaleTest_Phase1` 或 `C4143_ScaleTest_Phase2` tag，即納入 Overview、Rack、Test Features、Bug、Test Results、timeline、snapshot、CSV 與 Excel。
+- Child Bug relations 的讀取也改為所有 Query Test Cases，不再只抓 41 項 reference titles；避免 Bug list、Case cards 與匯出筆數不同步。
+- Case title 不再造成 `TITLE MISMATCH`、`NOT APPROVED` 或自動排除。唯一排除原因是 `PHASE TAG MISSING OR CONFLICT`；原本的 `OUT OF SCOPE` 卡片與 Scope filter audit 改名為 `PHASE TAG ISSUES` 與 Phase tag audit。
+- Native Test Result 仍可在找不到 Case ID 時用唯一 exact normalized title 做結果 mapping；這只是 Result 對應 fallback，不是 Case inclusion filter。
+
+### 37.2 超過 41 項的 title review
+
+- 既有 41 項清單保留為 `D.CASE_TITLE_REFERENCE`，僅作人工比較基準，不作篩選。
+- 只有某個 Rack 的有效 Phase Case 數量 **大於 41** 時，Overview 與該 Rack 才顯示 **Additional Case title review — 41-item reference (not excluded)**。
+- review 會逐筆列出未與 reference 清單逐字完全相同的 Rack、Case ID hyperlink、title、State 與 Phase tag。即使列在 review，Case 仍維持納入；使用者確認後才可另行決定是否建立新的排除範圍。
+- 若 Rack 超過 41 但全部 title 都與 reference 有 exact match，review 會提示檢查 duplicate Case，而不把它誤標為不相關 title。
+
+### 37.3 本機驗證與發布
+
+- 更新 fixture 後，正常資料每個 Phase 為 220 Cases、每 Rack 為 44 Cases（41 reference + 3 額外 title）。Phase/Rack consistency 仍為 44／44；Phase tag audit 為 0；Additional Case title review 正確列出每 Rack 3 筆、Overview 共 15 筆，且 Test Features 的 Rack 1 source 與 listed count 同為 44。
+- 此為本機 fixture 驗證，並非 Azure DevOps live 總數。正式確認時請在登入的 Dashboard 按 **Re-run query**，檢視新增 review 清單後決定哪些 title 應另列為未來的排除範圍。
+- userscript v1.12.6：199,377 bytes，SHA-256 `E387B0AFAF2A2E898CF61CA6B0729B755273A096E79A8B38FC94389430DD024C`。Extension v1.3.6 已通過 TypeScript check、esbuild 與 VSIX package；VSIX 為 64,496 bytes，SHA-256 `1E734D982DDD8C8AF67821A5E208B395344E3FF3E644A8E5E9CADD35ED29DDAD`。讀回 VSIX 已確認包含 userscript v1.12.6、`CASE_TITLE_REFERENCE`、`additionalTitleReview` 與 manifest v1.3.6。
