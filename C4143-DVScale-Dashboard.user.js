@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.12
+// @version      1.12.13
 // @description  Uses one-decimal maximum percentage formatting, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -262,10 +262,26 @@
     if (typeof value === 'object') value = value.displayName || value.name || value.uniqueName || value.mail || JSON.stringify(value);
     return String(value).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || '-';
   };
+  D.cacheRead = function (key, maxAge) {
+    try {
+      var raw = localStorage.getItem(key), entry = raw ? JSON.parse(raw) : null;
+      if (!entry || !entry.savedAt || Date.now() - entry.savedAt > maxAge) return null;
+      return entry.value || null;
+    } catch (error) { return null; }
+  };
+  D.cacheWrite = function (key, value) {
+    try { localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), value: value })); } catch (error) { }
+    return value;
+  };
   D.discoverMetricFields = async function (base) {
     var map = {}, specs = D.FIELD_SPECS;
     Object.keys(specs).forEach(function (key) { map[key] = specs[key].fallback || null; });
     D.S.metricFieldWarning = '';
+    var cacheKey = 'dvdashMetricFields:' + D.queryKey(D.CFG), cached = D.cacheRead(cacheKey, 86400000);
+    if (cached && typeof cached === 'object') {
+      Object.keys(cached).forEach(function (key) { map[key] = cached[key]; });
+      return map;
+    }
     try {
       var response = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/fields?api-version=6.0');
       var definitions = response.value || [];
@@ -282,6 +298,7 @@
       });
       var missing = Object.keys(specs).filter(function (key) { return !map[key]; });
       if (missing.length) D.S.metricFieldWarning = 'Custom fields not found: ' + missing.join(', ');
+      D.cacheWrite(cacheKey, map);
     } catch (fieldError) {
       D.S.metricFieldWarning = 'Field discovery failed: ' + String((fieldError && fieldError.message) || fieldError);
     }
@@ -2162,21 +2179,23 @@
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
+    var timingNote = D.S.lastLoadTiming ? ' Load timing: core ' + D.S.lastLoadTiming.coreMs + 's, supplemental ' + D.S.lastLoadTiming.supplementalMs + 's.' : '';
     var rl = (D.RANGES.filter(function (x) { return x[0] === D.S.range; })[0] || ['', ''])[1];
     var ml = (D.MODES.filter(function (x) { return x[0] === D.S.mode; })[0] || ['', ''])[1];
     var src = D.S.snapshotMode ? ('Offline snapshot (' + D.fmt(D.S.loadedAt) + ')') : (ml + ' · ' + D.fmt(D.S.loadedAt) + ' query re-run');
     requestAnimationFrame(D.fitCardValues);
     if (!tf && allCases.length) {
-      D.setStatus(src + ': loaded ' + allCases.length + ' test cases, but nothing was updated within "' + rl + '" — charts are empty. Latest change: ' + D.fmt(D.latest(allCases)) + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote, 'warn');
+      D.setStatus(src + ': loaded ' + allCases.length + ' test cases, but nothing was updated within "' + rl + '" — charts are empty. Latest change: ' + D.fmt(D.latest(allCases)) + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote + timingNote, 'warn');
     } else if (phaseRacks.length) {
       var phaseCounts = D.phaseCounts();
-      D.setStatus(src + ': ' + D.phaseLabel(D.S.phase) + ' has ' + phaseRacks.length + ' racks, ' + allCases.length + ' approved test cases, ' + totalLinkedBugs + ' verified Child Bugs; "' + rl + '" contains ' + tf + ' updated items. Query split: Phase 1 ' + phaseCounts.phase1 + ' / Phase 2 ' + phaseCounts.phase2 + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote || excludedCount || !consistency.allEqual) ? 'warn' : 'info');
+      D.setStatus(src + ': ' + D.phaseLabel(D.S.phase) + ' has ' + phaseRacks.length + ' racks, ' + allCases.length + ' approved test cases, ' + totalLinkedBugs + ' verified Child Bugs; "' + rl + '" contains ' + tf + ' updated items. Query split: Phase 1 ' + phaseCounts.phase1 + ' / Phase 2 ' + phaseCounts.phase2 + '.' + scopeNote + consistencyNote + bugNote + metricNote + testNote + timingNote, (D.S.bugLinkWarning || D.S.metricFieldWarning || testNote || excludedCount || !consistency.allEqual) ? 'warn' : 'info');
     } else if (D.S.racks.length) {
-      D.setStatus(src + ': no Test Cases were found for ' + D.phaseLabel(D.S.phase) + ' after exact Phase Tag validation.' + consistencyNote + bugNote + metricNote + testNote, 'warn');
+      D.setStatus(src + ': no Test Cases were found for ' + D.phaseLabel(D.S.phase) + ' after exact Phase Tag validation.' + consistencyNote + bugNote + metricNote + testNote + timingNote, 'warn');
     }
   };
   D.load = async function () {
     var modeLabel = (D.MODES.filter(function (m) { return m[0] === D.S.mode; })[0] || ['', ''])[1];
+    var loadStartedAt = (window.performance && performance.now) ? performance.now() : Date.now();
     if (D.S.mode === 'snapshot') {
       var s = D.readSnapshot();
       if (!s || !s.racks || !s.racks.length) {
@@ -2194,8 +2213,10 @@
     D.setStatus('Running the query with "' + modeLabel + '" and fetching work items …', 'info');
     try {
       var previous = D.readSnapshot();
+      D.S.lastLoadTiming = null;
       D.S.testResults = { status: 'loading', runs: [] };
       var res = await D.runQuery({ deferBugHistory: true });
+      var coreFinishedAt = (window.performance && performance.now) ? performance.now() : Date.now();
       D.S.racks = res.racks; D.S.loadedAt = new Date().toISOString(); D.S.snapshotMode = false;
       document.getElementById('updated').textContent = 'Updated: ' + D.fmt(D.S.loadedAt);
       if (D.S.active > D.phaseRacks().length + 3) D.S.active = 0;
@@ -2209,6 +2230,8 @@
         bugTask,
         resultTask
       ]);
+      var supplementalFinishedAt = (window.performance && performance.now) ? performance.now() : Date.now();
+      D.S.lastLoadTiming = { coreMs: Math.round((coreFinishedAt - loadStartedAt) / 100) / 10, supplementalMs: Math.round((supplementalFinishedAt - coreFinishedAt) / 100) / 10 };
       D.S.snapshotComparison = D.compareSnapshot(previous);
       D.saveSnapshot(previous);
       D.refresh();

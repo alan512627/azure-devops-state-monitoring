@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.12，工作分支已發布，待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.13，工作分支已發布，待合併 `main`） |
 | 最新腳本大小 | 196,259 bytes；SHA-256 `5671F345114BAEC56B0BFB8E7F4DBB1633E869E71B64F649B12BEAAAAAA7B25F` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1186,3 +1186,10 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 背景完成前狀態會顯示 `Core Cases loaded. Validating Bugs and loading Test Results in the background …`；暫時畫面不會把未完成的 Bug／Test Result 驗證當成最終統計。
 - `node --check C4143-DVScale-Dashboard.user.js` 與 `git diff --check` 通過。尚未以登入中的正式 Azure DevOps live query 測量實際秒數；fixture／offline snapshot 可驗證排除與畫面流程，正式頁面仍需按 **Re-run query** 確認 Phase 2 Rack 1 的實際 Case 數。
 - userscript v1.12.12：200,609 bytes，SHA-256 `EBEBB518A2D8A4A235B6515FFA2987922B9AB97A81EA9D4AFD1342B41C936D80`。Extension v1.3.12 VSIX 為 64,828 bytes，SHA-256 `47AED4D37F2D441BB6A9DB2355EB44DD68DE7BD90B0047863CAF6CB0B5859459`；`npm run package`（TypeScript、esbuild、VSIX）通過。
+
+## 44. 2026-11-01 Re-query timing 與 Custom Field discovery 快取（v1.12.13）
+
+- Custom field discovery 以 organization／project／Query ID 為 key 暫存 24 小時；欄位定義通常不會隨每次 Re-query 改變，因此可省略重複的 `/_apis/wit/fields` 請求。快取失敗或過期時會自動回到 live discovery。
+- Re-query 完成提示新增 `Load timing: core Xs, supplemental Ys`，分別表示主 Query／hierarchy 到核心畫面 ready，以及 Bug History／Test Results 背景補載完成的時間。這是觀測資訊，不會改變統計或判定。
+- `node --check`、`git diff --check` 與 Extension package 通過；正式秒數仍需在登入的 Azure DevOps live query 執行一次 Re-run 讀取提示。未修改 Azure DevOps 組織或 Work Item。
+- userscript v1.12.13：202,114 bytes，SHA-256 `15DD7D6A2DC260D8D132B557AAD7FAF5B45464DBDE3EE62928F84FBFE59FB58E`。Extension v1.3.13 VSIX 為 65,171 bytes，SHA-256 `ACD260E5ED085AA9FF4B63DA6E64924BC8603B8B152954D01AA1B67034455ED9`。
