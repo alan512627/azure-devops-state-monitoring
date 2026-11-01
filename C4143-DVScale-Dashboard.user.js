@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.8
-// @description  Excludes the configured FPGA teardown Case across all Racks and Phases despite title formatting differences.
+// @version      1.12.9
+// @description  Streamlines dashboard audits and metrics while keeping the fixed execution timeline readable.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -938,13 +938,7 @@
     return D.horizontalBarChart(title, rows, 'No ' + label + ' values found');
   };
   D.metricInventoryPanel = function (cases) {
-    var grid = D.el('div', 'metric-grid');
-    var left = D.el('div', 'metric-stack');
-    left.appendChild(D.metricInventoryChart(cases, 'sampleSize', 'Sample Size', D.numericRank, '#38bdf8'));
-    left.appendChild(D.metricInventoryChart(cases, 'numberOfCycles', 'Number_of_cycles', D.numericRank, '#a78bfa', true));
-    grid.appendChild(left);
-    grid.appendChild(D.metricInventoryChart(cases, 'testDuration', 'Test Duration', D.durationRank, '#fbbf24'));
-    return grid;
+    return D.metricInventoryChart(cases, 'numberOfCycles', 'Number_of_cycles', D.numericRank, '#a78bfa', true);
   };
   D.bugPrioritySeverityChart = function (bugs, priorityKey) {
     var priorityBugs = bugs.filter(function (bug) {
@@ -1273,9 +1267,7 @@
     changesBox.appendChild(D.changeDetails('State changed', comparison.stateChanged || [], 'state'));
     changesBox.appendChild(D.changeDetails('Added', comparison.added || [], 'added')); changesBox.appendChild(D.changeDetails('Removed', comparison.removed || [], 'removed'));
     resultGrid.appendChild(resultBox); resultGrid.appendChild(changesBox); wrap.appendChild(resultGrid);
-    var runsBox = D.box('Azure DevOps Test Runs / Test Plans — last ' + D.CFG.testResultDays + ' days');
-    if (test.testPlanWarning) runsBox.appendChild(D.el('div', 'empty', 'Test Plan names unavailable: ' + test.testPlanWarning + '. Test Run and Result data is still shown.'));
-    runsBox.appendChild(D.testRunsTable()); wrap.appendChild(runsBox); return wrap;
+    return wrap;
   };
   D.CSS = "*{box-sizing:border-box}\nbody{margin:0;font-family:\"Segoe UI\",Roboto,\"Noto Sans TC\",\"Microsoft JhengHei\",sans-serif;background:#0b1220;color:#e2e8f0;font-size:14px}\na{color:#7dd3fc;text-decoration:none}a:hover{text-decoration:underline}\nheader{padding:14px 20px;background:linear-gradient(90deg,#132039,#0d1729);border-bottom:1px solid #1e2b45;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}\nh1{font-size:18px;margin:0 0 4px}\n.sub{font-size:12px;color:#8fa3c0}\n.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 20px;background:#0e1830;border-bottom:1px solid #1e2b45;position:sticky;top:0;z-index:20}\n.controls label{font-size:12px;color:#9fb3d0;display:flex;gap:6px;align-items:center}\nselect,button,input{background:#16243d;color:#e2e8f0;border:1px solid #27395c;border-radius:6px;padding:6px 10px;font-size:13px;font-family:inherit}\nbutton{cursor:pointer}button:hover{background:#1e3a5f}\nbutton.primary{background:#2563eb;border-color:#2563eb}button.primary:hover{background:#1d4ed8}\n.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:10px 20px 0}\n.tab{padding:8px 16px;border-radius:8px 8px 0 0;background:#111d33;border:1px solid #1e2b45;border-bottom:none;color:#9fb3d0;cursor:pointer;font-size:13px}\n.tab.active{background:#16243d;color:#fff;font-weight:600;box-shadow:inset 0 3px 0 #38bdf8}\n.panel{display:none;padding:16px 20px 60px}.panel.active{display:block}\n.cards{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;align-items:center}\n.card{background:#111d33;border:1px solid #1e2b45;border-radius:10px;padding:10px 16px;min-width:110px}\n.card .k{font-size:10px;color:#8fa3c0;letter-spacing:.05em}\n.card .v{font-size:22px;font-weight:700;margin-top:2px}\n.grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(320px,1.15fr);gap:14px;margin-bottom:16px}\n@media(max-width:980px){.grid{grid-template-columns:1fr}}\n.box{background:#111d33;border:1px solid #1e2b45;border-radius:10px;padding:14px}\n.box h3{margin:0 0 10px;font-size:12px;color:#cbd8ea;letter-spacing:.05em;text-transform:uppercase}\n.chartwrap{height:300px}\n.legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;justify-content:center}\ntable{width:100%;border-collapse:collapse;font-size:13px}\nth,td{text-align:left;padding:6px 8px;border-bottom:1px solid #1c2942}\nth{color:#8fa3c0;font-size:10px;text-transform:uppercase;letter-spacing:.05em}\ntr.total td{font-weight:700;border-top:2px solid #27395c;border-bottom:none}\ntd.num,th.num{text-align:right;font-variant-numeric:tabular-nums}\n.chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;color:#0b1220}\n.bar{height:8px;border-radius:4px;background:#1c2942;overflow:hidden;display:flex;min-width:70px}\ndetails.node{border:1px solid #1c2942;border-radius:8px;margin:6px 0;background:#0f1a2e}\ndetails.node[open]{background:#101d33}\ndetails.node>summary{cursor:pointer;padding:8px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;list-style:none}\ndetails.node>summary::-webkit-details-marker{display:none}\ndetails.node>summary:before{content:\"\\25B8\";color:#5b7ba6;font-size:12px;transition:transform .15s}\ndetails.node[open]>summary:before{transform:rotate(90deg)}\ndetails.node>summary:hover{background:#152341}\n.nodebody{padding:2px 10px 10px 24px}\n.ntitle{font-weight:600}\n.lvl1>summary>.ntitle{color:#f0f6ff;font-size:14px}\n.lvl2>summary>.ntitle{color:#cfe3ff;font-size:13px}\n.lvl3>summary>.ntitle{color:#b7cdea;font-size:12.5px;font-weight:500}\n.type{font-size:10px;color:#7d93b3;border:1px solid #27395c;border-radius:4px;padding:1px 5px}\n.spacer{flex:1}\n.caserow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px dashed #1c2942;font-size:13px}\n.caserow:hover{background:#152341}\n.caseid{font-family:Consolas,monospace;font-size:12px;color:#7dd3fc;min-width:64px}\n.casetitle{flex:1;min-width:200px;color:#d7e3f4}\n.date{font-size:11px;color:#7d93b3;font-variant-numeric:tabular-nums}\n.banner{margin:10px 20px;padding:10px 14px;border-radius:8px;font-size:13px;border:1px solid}\n.banner.info{background:#10233d;border-color:#27507f;color:#bcd9ff}\n.banner.warn{background:#3a2a10;border-color:#7a5a1c;color:#ffd9a0}\n.banner.err{background:#3a1620;border-color:#7f2740;color:#ffc2cf}\n.hide{display:none!important}\n.small{font-size:11px;color:#8fa3c0}\n.empty{padding:14px;text-align:center;color:#8fa3c0;font-size:13px}";
   D.CSS += "\n.type-badge{font-weight:700;letter-spacing:.02em}\n.colour-key{display:inline-flex;flex-wrap:wrap;gap:5px;align-items:center;padding-left:8px;border-left:1px solid #27395c}\n.tab{font-size:14px;padding:10px 18px;min-height:40px}\n.banner{position:fixed;right:20px;bottom:20px;z-index:100;max-width:min(680px,calc(100vw - 40px));margin:0;padding:11px 14px;box-shadow:0 14px 36px rgba(0,0,0,.38);opacity:1;transform:translateY(0);transition:opacity .7s ease,transform .7s ease;pointer-events:auto}\n.banner.fading{opacity:0;transform:translateY(10px);pointer-events:none}\n.cards{display:flex;flex-wrap:nowrap;gap:12px;width:100%;align-items:stretch;overflow-x:auto;scrollbar-width:thin}\n.cards>.card{flex:1 0 118px;width:auto;min-width:118px;max-width:none;overflow:hidden;padding-left:12px;padding-right:12px}\n.card{position:relative;transition:transform .15s,filter .15s}\n.card:hover{transform:translateY(-2px);filter:brightness(1.12)}\n.card .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.card .v{white-space:nowrap;overflow:visible;text-overflow:clip;font-variant-numeric:tabular-nums;line-height:1.2;min-height:28px;display:flex;align-items:center}\n.tree-toolbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:66.6667%;max-width:100%;margin-bottom:14px;align-items:center}\n.tree-toolbar>button,.tree-toolbar>input{width:100%;min-width:0}\n.bug-link{display:inline-flex;align-items:center;border:1px solid rgba(248,113,113,.72);border-radius:999px;padding:2px 8px;background:rgba(248,113,113,.14);color:#fecaca;font-size:11px;font-weight:700;white-space:nowrap}\n.bug-link:hover{background:rgba(248,113,113,.25);color:#fff;text-decoration:none}\n.caserow{margin:3px 0;border-radius:6px;border-bottom-color:transparent;transition:filter .15s,transform .15s}\n.caserow:hover{filter:brightness(1.18);transform:translateX(2px)}\ndetails.node{overflow:hidden;transition:filter .15s,border-color .15s}\ndetails.node:hover{filter:brightness(1.08)}\n@media(max-width:720px){.tab{font-size:14px;padding:9px 14px;min-height:38px;flex:1 1 auto}.banner{right:12px;bottom:12px;max-width:calc(100vw - 24px)}.colour-key{width:100%;padding:6px 0 0;border-left:0;border-top:1px solid #27395c}.casetitle{min-width:150px}.tree-toolbar{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.tree-toolbar>input{grid-column:1/-1}}";
@@ -1291,7 +1283,7 @@
   D.CSS += "\n@media(max-width:620px){.query-control label{flex:1;min-width:0}.query-control select{width:100%}}";
   D.CSS += "\n.phase-tabs{display:flex;gap:10px;padding:12px 20px 0;border-bottom:1px solid #1e2b45;background:#0b1220}.phase-tab{flex:0 1 260px;min-height:44px;padding:9px 20px;border-radius:9px 9px 0 0;background:#111d33;color:#9fb3d0;border:1px solid #253858;border-bottom:0;font-size:14px;font-weight:700}.phase-tab[data-phase='phase1']{--phase-accent:#38bdf8}.phase-tab[data-phase='phase2']{--phase-accent:#c084fc}.phase-tab.active{background:#172742;color:#fff;box-shadow:inset 0 4px 0 var(--phase-accent)}.phase-tab:hover{background:#1b3151}@media(max-width:620px){.phase-tabs{padding:9px 10px 0;gap:6px}.phase-tab{flex:1;min-width:0;padding:8px 6px;font-size:12px}}";
   D.CSS += "\n.scope-audit-summary{margin:0 0 8px;color:#bfdbfe;font-size:12px}.scope-audit-ok{padding:8px 10px;border:1px solid #1f6f5c;border-radius:7px;background:rgba(45,212,191,.09);color:#99f6e4;font-size:12px}.scope-audit-details{border:1px solid #7a5a1c;border-radius:8px;background:rgba(245,181,68,.08);overflow:hidden}.scope-audit-details>summary{cursor:pointer;padding:10px 12px;color:#fde68a;font-weight:700;font-size:12px}.scope-audit-details .table-scroll{padding:0 10px 10px}.scope-audit-details table{min-width:1080px}.scope-audit-details td:nth-child(4),.scope-audit-details td:nth-child(5){min-width:330px}.scope-reason{font-size:10px;font-weight:800;white-space:nowrap}.scope-reason.mismatch{color:#fde68a}.scope-reason.not-approved{color:#fda4af}.rack-consistency{display:grid;gap:10px}.rack-consistency-alert{padding:8px 10px;color:#fde68a;font-size:12px}.consistency-yes{color:#99f6e4}.consistency-no{color:#fda4af}";
-  D.CSS += "\n.timeline-intro{margin:2px 0 10px;color:#9fb3d0;font-size:12px}.timeline-controls{display:grid;grid-template-columns:180px 210px minmax(240px,1fr);gap:10px;margin:0 0 10px}.timeline-controls label{display:grid;gap:4px;color:#9fb3d0;font-size:11px}.timeline-controls select,.timeline-controls input{width:100%;min-width:0}.timeline-legend{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 10px;color:#a9bdd8;font-size:11px}.timeline-legend-item{display:inline-flex;align-items:center;gap:6px}.timeline-swatch{display:inline-block;width:26px;height:8px;border-radius:5px}.timeline-swatch.estimate{border:2px solid #60a5fa;background:transparent}.timeline-swatch.actual{background:#2dd4bf}.timeline-swatch.invalid{border:2px dashed #fb7185;background:rgba(251,113,133,.18)}.timeline-scroll{max-height:70vh;overflow:auto;border:1px solid #253858;border-radius:9px;background:#0c1729}.timeline-canvas{--timeline-track-width:900px;width:calc(360px + var(--timeline-track-width));min-width:100%}.timeline-grid-row{display:grid;grid-template-columns:360px var(--timeline-track-width);min-height:48px;border-bottom:1px solid #1c2942}.timeline-grid-row:last-child{border-bottom:0}.timeline-grid-row:nth-child(even)>.timeline-track{background-color:rgba(21,35,65,.35)}.timeline-label{position:sticky;left:0;z-index:2;display:flex;flex-direction:column;justify-content:center;min-width:0;padding:6px 10px;background:#101d33;border-right:1px solid #253858}.timeline-case-link{font-size:11px;font-weight:700}.timeline-case-title{margin-top:2px;color:#d7e3f4;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-track{position:relative;background-image:linear-gradient(to right,rgba(53,84,119,.22) 1px,transparent 1px);background-size:10% 100%}.timeline-bar{position:absolute;height:10px;min-width:7px;border-radius:999px;z-index:1}.timeline-bar.estimate{top:8px;border:2px solid #60a5fa;background:rgba(96,165,250,.12)}.timeline-bar.actual{top:27px;background:#2dd4bf;box-shadow:0 0 0 1px rgba(153,246,228,.22)}.timeline-bar.invalid{border:2px dashed #fb7185!important;background:rgba(251,113,133,.24)!important}.timeline-bar.point{width:8px!important;border-radius:50%}.timeline-header{position:sticky;top:0;z-index:6;min-height:42px;background:#132039}.timeline-header .timeline-label{z-index:7;background:#132039;font-size:11px;font-weight:700;color:#dbeafe}.timeline-axis{background:#132039}.timeline-tick{position:absolute;top:12px;transform:translateX(-50%);color:#8fa3c0;font-size:10px;white-space:nowrap}.timeline-tick:first-child{transform:none}.timeline-tick:last-child{transform:translateX(-100%)}.timeline-audit{margin-top:12px;border:1px solid #7a5a1c;border-radius:8px;background:rgba(245,181,68,.06);overflow:hidden}.timeline-audit>summary{cursor:pointer;padding:10px 12px;color:#fde68a;font-size:12px;font-weight:700}.timeline-audit .table-scroll{padding:0 10px 10px}.timeline-audit table{min-width:1120px}.timeline-audit td:nth-child(2){min-width:360px}.timeline-issue{color:#fda4af;font-weight:700}@media(max-width:720px){.timeline-controls{grid-template-columns:1fr}.timeline-canvas{width:calc(250px + var(--timeline-track-width))}.timeline-grid-row{grid-template-columns:250px var(--timeline-track-width)}.timeline-case-title{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.timeline-scroll{max-height:65vh}}";
+  D.CSS += "\n.timeline-intro{margin:2px 0 10px;color:#9fb3d0;font-size:12px}.timeline-controls{display:grid;grid-template-columns:180px 210px minmax(240px,1fr);gap:10px;margin:0 0 10px}.timeline-controls label{display:grid;gap:4px;color:#9fb3d0;font-size:11px}.timeline-controls select,.timeline-controls input{width:100%;min-width:0}.timeline-legend{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 10px;color:#a9bdd8;font-size:11px}.timeline-legend-item{display:inline-flex;align-items:center;gap:6px}.timeline-swatch{display:inline-block;width:26px;height:8px;border-radius:5px}.timeline-swatch.estimate{border:2px solid #60a5fa;background:transparent}.timeline-swatch.actual{background:#2dd4bf}.timeline-swatch.invalid{border:2px dashed #fb7185;background:rgba(251,113,133,.18)}.timeline-scroll{max-height:70vh;overflow:auto;overscroll-behavior:contain;border:1px solid #253858;border-radius:9px;background:#0c1729}.timeline-canvas{--timeline-track-width:900px;width:calc(360px + var(--timeline-track-width));min-width:100%}.timeline-grid-row{display:grid;grid-template-columns:360px var(--timeline-track-width);min-height:62px;border-bottom:1px solid #1c2942}.timeline-grid-row:last-child{border-bottom:0}.timeline-grid-row:nth-child(even)>.timeline-track{background-color:rgba(21,35,65,.35)}.timeline-label{position:sticky;left:0;z-index:2;display:flex;flex-direction:column;justify-content:center;min-width:0;padding:9px 12px;background:#101d33;border-right:1px solid #253858}.timeline-case-link{font-size:12px;font-weight:700}.timeline-case-title{margin-top:3px;color:#d7e3f4;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-track{position:relative;background-image:linear-gradient(to right,rgba(53,84,119,.22) 1px,transparent 1px);background-size:10% 100%}.timeline-bar{position:absolute;height:12px;min-width:8px;border-radius:999px;z-index:1}.timeline-bar.estimate{top:10px;border:2px solid #60a5fa;background:rgba(96,165,250,.12)}.timeline-bar.actual{top:36px;background:#2dd4bf;box-shadow:0 0 0 1px rgba(153,246,228,.22)}.timeline-bar.invalid{border:2px dashed #fb7185!important;background:rgba(251,113,133,.24)!important}.timeline-bar.point{width:9px!important;border-radius:50%}.timeline-header{position:sticky;top:0;z-index:6;min-height:52px;background:#132039}.timeline-header .timeline-label{z-index:7;background:#132039;font-size:12px;font-weight:700;color:#dbeafe}.timeline-axis{background:#132039}.timeline-tick{position:absolute;top:17px;transform:translateX(-50%);color:#b7cdea;font-size:12px;font-weight:600;white-space:nowrap}.timeline-tick:first-child{transform:none}.timeline-tick:last-child{transform:translateX(-100%)}.timeline-audit{margin-top:12px;border:1px solid #7a5a1c;border-radius:8px;background:rgba(245,181,68,.06);overflow:hidden}.timeline-audit>summary{cursor:pointer;padding:10px 12px;color:#fde68a;font-size:12px;font-weight:700}.timeline-audit .table-scroll{padding:0 10px 10px}.timeline-audit table{min-width:1120px}.timeline-audit td:nth-child(2){min-width:360px}.timeline-issue{color:#fda4af;font-weight:700}@media(max-width:720px){.timeline-controls{grid-template-columns:1fr}.timeline-canvas{width:calc(250px + var(--timeline-track-width))}.timeline-grid-row{grid-template-columns:250px var(--timeline-track-width)}.timeline-case-title{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.timeline-scroll{max-height:65vh}}";
   D.CSS += "\n.timeline-label-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}.timeline-detail-toggle{flex:none;padding:3px 7px;border-radius:5px;font-size:10px;line-height:1.2;background:#193657;color:#bae6fd;border-color:#2d527d}.timeline-detail-toggle:hover{background:#214a74}.timeline-detail-toggle:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}.timeline-detail-row{display:none;grid-template-columns:360px var(--timeline-track-width);min-height:92px;border-bottom:1px solid #2d527d;background:#0d192c}.timeline-detail-row.open{display:grid}.timeline-detail-card{position:sticky;left:0;z-index:3;padding:8px 10px;background:#13243c;border-right:1px solid #35618f;box-shadow:inset 3px 0 0 #38bdf8}.timeline-detail-title{margin-bottom:7px;color:#dbeafe;font-size:11px;font-weight:700}.timeline-detail-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.timeline-detail-field{display:grid;gap:2px;padding:5px 6px;border-radius:6px;background:#0f1a2e;border:1px solid #253858}.timeline-detail-field.actual{border-left:3px solid #2dd4bf}.timeline-detail-field.estimate{border-left:3px solid #60a5fa}.timeline-detail-key{color:#8fa3c0;font-size:9px;text-transform:uppercase;letter-spacing:.03em}.timeline-detail-value{color:#f0f6ff;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}.timeline-detail-spacer{background-image:linear-gradient(to right,rgba(53,84,119,.16) 1px,transparent 1px);background-size:10% 100%}@media(max-width:720px){.timeline-detail-row{grid-template-columns:250px var(--timeline-track-width);min-height:154px}.timeline-detail-fields{grid-template-columns:1fr}.timeline-detail-toggle{padding:4px 6px;font-size:9px}.timeline-case-link{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-detail-value{font-size:10px}}";
   D.CSS += "\n.feature-table{min-width:1980px!important}";
   D.card = function (k, v, tone) {
@@ -1564,8 +1556,6 @@
     row.appendChild(D.testResultBadge(n.latestResult));
     var metrics = n.metrics || {};
     if (D.hasMetric(metrics.priority)) row.appendChild(D.metricBadge('Priority', 'P' + (D.priorityLevel(metrics.priority) || metrics.priority), '#c084fc'));
-    if (D.hasMetric(metrics.sampleSize)) row.appendChild(D.metricBadge('Sample', metrics.sampleSize, '#38bdf8'));
-    if (D.hasMetric(metrics.testDuration)) row.appendChild(D.metricBadge('Duration', metrics.testDuration, '#fbbf24'));
     (n.bugs || []).forEach(function (bug) { row.appendChild(D.bugLink(bug)); });
     if (n.assigned) row.appendChild(D.el('span', 'date', n.assigned));
     row.appendChild(D.el('span', 'date', D.fmt(n.changed)));
@@ -1669,7 +1659,7 @@
   D.featureCaseTable = function (entries, featureName) {
     var scroll = D.el('div', 'feature-table-scroll');
     var table = D.el('table', 'feature-table'), thead = D.el('thead'), header = D.el('tr');
-    ['ID', 'Title', 'State', 'Latest Test Result', 'Changed', 'Priority', 'Sample Size', 'Cycles', 'Duration', 'Actual Start', 'Actual Completion', 'Estimate Start', 'Estimate Completion', 'Script type', 'CRC SDK', 'IGS Owner', 'Linked Bugs', 'Comments'].forEach(function (label) { header.appendChild(D.el('th', null, label)); });
+    ['ID', 'Title', 'State', 'Latest Test Result', 'Changed', 'Priority', 'Cycles', 'Actual Start', 'Actual Completion', 'Estimate Start', 'Estimate Completion', 'Script type', 'CRC SDK', 'IGS Owner', 'Linked Bugs', 'Comments'].forEach(function (label) { header.appendChild(D.el('th', null, label)); });
     thead.appendChild(header); table.appendChild(thead);
     var tbody = D.el('tbody');
     entries.forEach(function (entry) {
@@ -1687,9 +1677,7 @@
       row.appendChild(D.el('td', null, D.fmt(testCase.changed)));
       var priority = D.priorityLevel(metrics.priority);
       row.appendChild(D.el('td', null, D.hasMetric(metrics.priority) ? (priority ? 'P' + priority : D.displayFieldValue(metrics.priority)) : '-'));
-      row.appendChild(D.el('td', null, D.displayFieldValue(metrics.sampleSize)));
       row.appendChild(D.el('td', null, D.displayFieldValue(metrics.numberOfCycles)));
-      row.appendChild(D.el('td', null, D.displayFieldValue(metrics.testDuration)));
       row.appendChild(D.el('td', null, D.fmt(execution.actualStartDate)));
       row.appendChild(D.el('td', null, D.fmt(execution.actualCompletionDate)));
       row.appendChild(D.el('td', null, D.fmt(execution.estimateStartDate)));
@@ -1981,25 +1969,18 @@
       var cards = D.el('div', 'cards');
       if (def.kind === 'ov') {
         refs.cRacks = D.card('RACKS', phaseRacks.length, '#38bdf8');
-        refs.cFeat = D.card('FEATURES', 0, '#c084fc');
-        refs.cReq = D.card('SYSTEM REQS', 0, '#fbbf24');
         refs.cCase = D.card('TOTAL TEST CASES', '-', '#34d399');
         refs.cFiltered = D.card('UPDATED IN RANGE', 0, '#60a5fa');
         refs.cPass = D.card('PASS CASES / RATE', '-', '#2dd4bf');
         refs.cFail = D.card('FAIL CASES (BLOCKED) / RATE', '-', '#fb7185');
         refs.cProgress = D.card('IN PROGRESS CASES', 0, '#818cf8');
         refs.cBugs = D.card('BUGS / AFFECTED CASES', '-', '#fb923c');
-        refs.cExcluded = D.card('EXCLUDED CASES', 0, '#f5b544');
         refs.cPass.title = 'Closed Test Cases are counted as Pass. Rate denominator: Test Cases in the selected time range.';
         refs.cFail.title = 'Blocked Test Cases are counted as Fail. Rate denominator: Test Cases in the selected time range.';
         refs.cProgress.title = 'Test Cases whose current Azure DevOps State is In Progress.';
         refs.cBugs.title = 'Unique Bugs / affected Test Cases after Child link, reciprocal Parent, and Case History validation.';
-        refs.cExcluded.title = 'Query Test Cases excluded for a missing/conflicted Phase tag or an explicit configured scope exclusion.';
-        [refs.cRacks, refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs, refs.cExcluded].forEach(function (c) { cards.appendChild(c); });
+        [refs.cRacks, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
         var stickyTop = D.el('div', 'panel-sticky'); stickyTop.appendChild(cards); panel.appendChild(stickyTop);
-        var scopeAudit = D.box('Case exclusion audit — excluded from statistics'); refs.scopeBox = D.el('div'); scopeAudit.appendChild(refs.scopeBox); panel.appendChild(scopeAudit);
-        var titleReview = D.box('Additional Case title review — 41-item reference (not excluded)'); refs.titleReviewBox = D.el('div'); titleReview.appendChild(refs.titleReviewBox); panel.appendChild(titleReview);
-        var consistencyAudit = D.box('Phase / Rack Case count consistency'); refs.consistencyBox = D.el('div'); consistencyAudit.appendChild(refs.consistencyBox); panel.appendChild(consistencyAudit);
         var grid = D.el('div', 'grid');
         var b1 = D.box('Test Case state distribution — all Racks');
         refs.chartHost = D.el('div', 'chartwrap'); b1.appendChild(refs.chartHost);
@@ -2011,25 +1992,19 @@
         refs.tableBox = D.el('div'); b3.appendChild(refs.tableBox); panel.appendChild(b3);
         var bPriority = D.box('Test Case completion by Priority — Closed = completed');
         refs.priorityBox = D.el('div'); bPriority.appendChild(refs.priorityBox); panel.appendChild(bPriority);
-        var bMetrics = D.box('Sample Size, Number_of_cycles & Test Duration — largest / longest first');
+        var bMetrics = D.box('Number_of_cycles — largest first');
         refs.metricBox = D.el('div'); bMetrics.appendChild(refs.metricBox); panel.appendChild(bMetrics);
         var b4 = D.box('Bug tracking — verified Test Case Child links');
         refs.bugRackBox = D.el('div'); b4.appendChild(refs.bugRackBox);
         refs.bugStatsBox = D.el('div'); b4.appendChild(refs.bugStatsBox);
         refs.bugBox = D.el('div', 'bug-detail-scroll'); b4.appendChild(refs.bugBox); panel.appendChild(b4);
       } else if (def.kind === 'rack') {
-        refs.cFeat = D.card('FEATURES', 0, '#c084fc');
-        refs.cReq = D.card('SYSTEM REQS', 0, '#fbbf24');
         refs.cCase = D.card('TEST CASES', '-', '#34d399');
         refs.cFiltered = D.card('UPDATED IN RANGE', 0, '#60a5fa');
         refs.cBugs = D.card('CHILD BUGS', 0, '#f87171');
-        refs.cExcluded = D.card('EXCLUDED CASES', 0, '#f5b544');
         refs.cBugs.title = 'Unique Bugs whose Child link, reciprocal Parent, and Case History all match this Rack\'s Test Case.';
-        refs.cExcluded.title = 'Test Cases in this Rack Feature excluded for a missing/conflicted Phase tag or an explicit configured scope exclusion.';
-        [refs.cFeat, refs.cReq, refs.cCase, refs.cFiltered, refs.cBugs, refs.cExcluded].forEach(function (c) { cards.appendChild(c); });
+        [refs.cCase, refs.cFiltered, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
         var rackSticky = D.el('div', 'panel-sticky'); rackSticky.appendChild(cards); panel.appendChild(rackSticky);
-        var rackScopeAudit = D.box(def.rack.label + ' Case exclusion audit'); refs.scopeBox = D.el('div'); rackScopeAudit.appendChild(refs.scopeBox); panel.appendChild(rackScopeAudit);
-        var rackTitleReview = D.box(def.rack.label + ' additional Case title review — 41-item reference (not excluded)'); refs.titleReviewBox = D.el('div'); rackTitleReview.appendChild(refs.titleReviewBox); panel.appendChild(rackTitleReview);
         var g = D.el('div', 'grid');
         var rb1 = D.box(def.rack.label + ' State distribution');
         refs.chartHost = D.el('div', 'chartwrap'); rb1.appendChild(refs.chartHost);
@@ -2039,7 +2014,7 @@
         g.appendChild(rb1); g.appendChild(rb2); panel.appendChild(g);
         var rbPriority = D.box('Test Case completion by Priority — Closed = completed');
         refs.priorityBox = D.el('div'); rbPriority.appendChild(refs.priorityBox); panel.appendChild(rbPriority);
-        var rbMetrics = D.box('Sample Size, Number_of_cycles & Test Duration — largest / longest first');
+        var rbMetrics = D.box('Number_of_cycles — largest first');
         refs.metricBox = D.el('div'); rbMetrics.appendChild(refs.metricBox); panel.appendChild(rbMetrics);
         var rbBugs = D.box(def.rack.label + ' Bug list — verified Test Case Child links');
         refs.bugSummaryBox = D.el('div', 'rack-bug-reconcile'); rbBugs.appendChild(refs.bugSummaryBox);
@@ -2093,18 +2068,12 @@
         var bugCases = allCases.filter(function (c) { return (c.bugs || []).length > 0; });
         var linkedBugs = bugInventory.map(function (entry) { return entry.bug; });
         var outcomes = D.outcomeSummary(f);
-        p.cFeat._val.textContent = allFeat.length;
-        p.cReq._val.textContent = allReq.length;
         p.cCase._val.textContent = allCases.length;
         p.cFiltered._val.textContent = f.length;
         p.cPass._val.textContent = D.outcomeValue(outcomes.pass, outcomes.passRate);
         p.cFail._val.textContent = D.outcomeValue(outcomes.fail, outcomes.failRate);
         p.cProgress._val.textContent = outcomes.inProgress;
         p.cBugs._val.textContent = linkedBugs.length + ' / ' + bugCases.length;
-        p.cExcluded._val.textContent = phaseScope.excluded.length;
-        p.scopeBox.innerHTML = ''; p.scopeBox.appendChild(D.scopeAuditPanel(D.S.phase));
-        p.titleReviewBox.innerHTML = ''; p.titleReviewBox.appendChild(D.additionalTitleReviewPanel(D.S.phase));
-        p.consistencyBox.innerHTML = ''; p.consistencyBox.appendChild(D.rackConsistencyPanel());
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.rackTable(phaseRacks));
         p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(f));
         p.metricBox.innerHTML = ''; p.metricBox.appendChild(D.metricInventoryPanel(f));
@@ -2123,14 +2092,9 @@
         var rackScope = D.scopeStats(D.S.phase, p.rack);
         var rackBugEntries = D.bugEntriesForRack(bugInventory, p.rack);
         var rackOnlyBugs = rackBugEntries.filter(function (entry) { return entry.racks.length === 1; }).length;
-        p.cFeat._val.textContent = D.collect(p.rack, 'Feature').length;
-        p.cReq._val.textContent = D.collect(p.rack, 'System Requirement').length;
         p.cCase._val.textContent = cs.length;
         p.cFiltered._val.textContent = fc.length;
         p.cBugs._val.textContent = rackBugEntries.length;
-        p.cExcluded._val.textContent = rackScope.excluded.length;
-        p.scopeBox.innerHTML = ''; p.scopeBox.appendChild(D.scopeAuditPanel(D.S.phase, p.rack));
-        p.titleReviewBox.innerHTML = ''; p.titleReviewBox.appendChild(D.additionalTitleReviewPanel(D.S.phase, p.rack));
         var c2 = D.countStates(fc);
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.statsTable(c2));
         p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(fc));

@@ -2,7 +2,7 @@
 
 This extension packages the same live Dashboard core as the Tampermonkey version and adds:
 
-- A full **C4143 DV-Scale** Hub under Azure Test Plans with exact `C4143_ScaleTest_Phase1`／`C4143_ScaleTest_Phase2` validation, Rack placement derived only from each parent Rack Feature title, all valid-Phase Cases included except the configured FPGA teardown Case across title-format variants, a non-excluding over-41 Case title review, click/tap Execution date-time details, Actual/Estimated Execution Timeline, Phase/Rack count-consistency audit, multi-project Query selector, live Test Result summaries, and verified Test Case Child ↔ Bug Parent ↔ Case History reconciliation as userscript v1.12.8.
+- A full **C4143 DV-Scale** Hub under Azure Test Plans with exact `C4143_ScaleTest_Phase1`／`C4143_ScaleTest_Phase2` validation, Rack placement derived only from each parent Rack Feature title, all valid-Phase Cases included except the configured FPGA teardown Case across title-format variants, compact Overview/Rack cards, Number_of_cycles-only metric inventory, click/tap Execution date-time details, a fixed readable Actual/Estimated Execution Timeline, multi-project Query selector, live Test Result summaries, and verified Test Case Child ↔ Bug Parent ↔ Case History reconciliation as userscript v1.12.9.
 - A resizable **C4143 DV-Scale Status** Dashboard Widget.
 - Azure DevOps-issued access tokens with read-only `vso.work` and `vso.test` scopes.
 
