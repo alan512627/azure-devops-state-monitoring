@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.18
+// @version      1.12.19
 // @description  Uses one-decimal maximum percentage formatting, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -402,11 +402,20 @@
         }); });
       var linkedChunks = [];
       for (var k = 0; k < linkedFetchIds.length; k += 200) linkedChunks.push(linkedFetchIds.slice(k, k + 200));
-      var linkedBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
+      // Azure DevOps rejects a workitemsbatch body that combines `fields` and
+      // `$expand: relations` (ConflictingParametersException). Fetch these
+      // independently, then join by work-item ID so Bug validation remains
+      // strict without turning the supplemental section into a hard failure.
+      var linkedRelationBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
         return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: fields, '$expand': 'relations', errorPolicy: 'omit' }) });
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, '$expand': 'relations', errorPolicy: 'omit' }) });
       });
-      linkedBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; linkedRelationsById[it.id] = it.relations || []; }); });
+      var linkedFieldBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
+        return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: fields, errorPolicy: 'omit' }) });
+      });
+      linkedFieldBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; }); });
+      linkedRelationBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) { linkedRelationsById[it.id] = it.relations || []; }); });
       var reciprocalChildIdsOf = {}, parentMismatchCount = 0, unavailableChildCount = 0;
       Object.keys(linkedIdsOf).forEach(function (caseId) {
         Object.keys(linkedIdsOf[caseId]).forEach(function (linkedId) {
