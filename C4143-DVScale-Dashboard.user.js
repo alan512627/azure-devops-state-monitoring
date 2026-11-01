@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.9
-// @description  Streamlines dashboard audits and metrics while keeping the fixed execution timeline readable.
+// @version      1.12.10
+// @description  Uses one-decimal maximum percentage formatting across dashboard calculations.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -779,11 +779,13 @@
       linkAddedBy: ''
     });
   };
-  D.rate = function (count, total) {
-    if (!count || !total) return '0%';
-    var percentage = Math.min(100, Math.max(0, count * 100 / total));
+  D.percent = function (value) {
+    var percentage = Math.min(100, Math.max(0, Number(value) || 0));
     var rounded = Math.round(percentage * 10) / 10;
     return (rounded % 1 ? rounded.toFixed(1) : rounded.toFixed(0)) + '%';
+  };
+  D.rate = function (count, total) {
+    return !count || !total ? '0%' : D.percent(count * 100 / total);
   };
   D.outcomeValue = function (count, rate) {
     return count ? count + ' · ' + rate : '0%';
@@ -930,7 +932,7 @@
     var total = keys.reduce(function (sum, keyName) { return sum + groups[keyName].length; }, 0);
     var rows = keys.map(function (keyName) {
       var count = groups[keyName].length, share = total ? count * 100 / total : 0;
-      return { label: keyName, valueText: D.countLabel(count, 'case') + ' · ' + share.toFixed(1) + '%', percent: share, items: groups[keyName], color: color };
+      return { label: keyName, valueText: D.countLabel(count, 'case') + ' · ' + D.percent(share), percent: share, items: groups[keyName], color: color };
     });
     var title = showCoverage
       ? label + ' (' + total + ' set / ' + (cases.length - total) + ' empty · ' + cases.length + ' total)'
@@ -958,7 +960,7 @@
       var share = priorityBugs.length ? list.length * 100 / priorityBugs.length : 0;
       rows.push({
         label: key === 'unknown' ? 'Severity not set' : severityLabels[key],
-        valueText: D.countLabel(list.length, 'bug') + ' · ' + share.toFixed(1) + '%',
+        valueText: D.countLabel(list.length, 'bug') + ' · ' + D.percent(share),
         percent: share,
         items: list,
         kind: 'bug',
@@ -1047,12 +1049,12 @@
       keys.forEach(function (k) {
         var frac = counts[k] / total, a1 = a + frac * Math.PI * 2;
         var p = D.svg('path', { d: D.arcPath(cx, cy, R, r, a, a1), fill: D.colorFor(k), stroke: '#0b1220', 'stroke-width': '2' });
-        var ti = D.svg('title'); ti.textContent = k + ': ' + counts[k] + ' (' + (frac * 100).toFixed(1) + '%)';
+        var ti = D.svg('title'); ti.textContent = k + ': ' + counts[k] + ' (' + D.percent(frac * 100) + ')';
         p.appendChild(ti); s.appendChild(p);
         if (frac > 0.06) {
           var am = (a + a1) / 2, rr = (R + r) / 2;
           var lb = D.svg('text', { x: cx + rr * Math.cos(am), y: cy + rr * Math.sin(am) + 4, fill: '#0b1220', 'text-anchor': 'middle', 'font-size': '12', 'font-weight': '700' });
-          lb.textContent = (frac * 100).toFixed(0) + '%'; s.appendChild(lb);
+          lb.textContent = D.percent(frac * 100); s.appendChild(lb);
         }
         a = a1;
       });
@@ -1119,7 +1121,7 @@
     var wrap = D.el('div', 'legend');
     var total = D.sum(counts);
     D.orderStates(Object.keys(counts)).forEach(function (k) {
-      var c = D.chip(k, counts[k] + ' (' + (total ? (counts[k] * 100 / total).toFixed(0) : 0) + '%)');
+      var c = D.chip(k, counts[k] + ' (' + D.percent(total ? counts[k] * 100 / total : 0) + ')');
       wrap.appendChild(c);
     });
     return wrap;
