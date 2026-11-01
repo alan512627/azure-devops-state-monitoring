@@ -4,7 +4,7 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.13；工作分支已發布，待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.12.14；工作分支已發布，待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
@@ -102,6 +102,7 @@ v1.9.0 新增左側 `Insights` 分頁：
 - **真實 Pass／Fail**：讀取最近 28 天的 Test Runs、Test Results 與 Test Plans。每個 Case 只取最新結果，Pass／Fail Rate 的分母只包含 `Passed` 與失敗類 Outcome；沒有 Test Result 的 Case 會分開顯示，不會誤當 Fail。
 - **快速 Re-query**：核心 Query、Rack、Case 與狀態先完成並呈現 Overview／Rack；Child Bug History 驗證與 Test Runs／Results 會在背景補載，完成後只更新相關統計。Core Work Item、Relation 與 Child Work Item 批次採有限並行，避免循序等待又不造成無限制 API 壓力。背景完成前的卡片不會被當作最終 Bug／Test Result 統計。
 - **Re-query timing**：完成後的提示會回報 core 與 supplemental 的秒數，方便區分主查詢與背景驗證的實際延遲。
+- **Priority 顯示**：Dashboard、Rack、Bug list、Case row 與 Test Features 表格不再顯示 Priority 欄位；Priority 仍保留於資料模型與匯出相容結構，Bug severity 改為跨全部 verified Bugs 統計。
 - **Case 結果回填**：Rack 與 Test Features 的每個 Case 顯示最新 Outcome，可連到對應 Test Run；優先以 Case ID 對應，僅在 Title 唯一且完全相符時才退回 Title 對應。
 - **與上次快照比較**：列出 Added、Removed、State Changed，以及本週有更新的 Cases。第一次使用只有基準快照；下一次重新查詢後才會產生差異。
 - **週報匯出**：`Download weekly CSV` 匯出全部 Case 明細；`Download weekly Excel (.xlsx)` 另外包含 Weekly Cases、Test Runs、Snapshot Changes 三個未凍結的工作表，保留 Azure DevOps hyperlinks。

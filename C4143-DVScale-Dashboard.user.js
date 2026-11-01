@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.13
+// @version      1.12.14
 // @description  Uses one-decimal maximum percentage formatting, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -1040,6 +1040,21 @@
     var title = priorityKey === 'unknown' ? 'Priority not set' : 'Priority P' + priorityKey;
     return D.horizontalBarChart(title + ' (' + D.countLabel(priorityBugs.length, 'bug') + ')', rows);
   };
+  D.bugSeverityChart = function (bugs) {
+    var groups = { 1: [], 2: [], 3: [], 4: [], unknown: [] };
+    (bugs || []).forEach(function (bug) {
+      var level = D.severityInfo(bug.severity).level;
+      (level ? groups[level] : groups.unknown).push(bug);
+    });
+    var labels = { 1: '1 - Critical', 2: '2 - High', 3: '3 - Medium', 4: '4 - Low', unknown: 'Severity not set' };
+    var colors = { 1: '#fb7185', 2: '#fb923c', 3: '#fbbf24', 4: '#60a5fa', unknown: '#94a3b8' }, total = (bugs || []).length, rows = [];
+    [1, 2, 3, 4, 'unknown'].forEach(function (key) {
+      var list = groups[key]; if (!list.length && key === 'unknown') return;
+      var share = total ? list.length * 100 / total : 0;
+      rows.push({ label: labels[key], valueText: D.countLabel(list.length, 'bug') + ' · ' + D.percent(share), percent: share, items: list, kind: 'bug', color: colors[key] });
+    });
+    return D.horizontalBarChart('Bug Severity (' + D.countLabel(total, 'bug') + ')', rows, 'No verified Bugs found yet');
+  };
   D.bugRackStats = function (inventory, racks) {
     var wrap = D.el('div', 'bug-rack-stats');
     var rackOnlyCount = inventory.filter(function (entry) { return entry.racks.length === 1; }).length;
@@ -1086,10 +1101,8 @@
     var bugs = inventory ? inventory.map(function (entry) { return entry.bug; }) : D.uniqueBugs(cases), wrap = D.el('div');
     wrap.appendChild(D.el('div', 'metric-total', 'Total unique Bugs: ' + bugs.length));
     var allBugIds = D.idDropdown(bugs, 'bug'); if (allBugIds) wrap.appendChild(allBugIds);
-    wrap.appendChild(D.el('div', 'small', 'Severity percentages are calculated within each Bug Priority.'));
-    var grid = D.el('div', 'metric-grid bug-priority-grid');
-    [1, 2, 3, 4].forEach(function (priority) { grid.appendChild(D.bugPrioritySeverityChart(bugs, priority)); });
-    if (bugs.some(function (bug) { return !D.priorityLevel(bug.priority); })) grid.appendChild(D.bugPrioritySeverityChart(bugs, 'unknown'));
+    wrap.appendChild(D.el('div', 'small', 'Severity percentages are calculated across all verified Bugs.'));
+    var grid = D.el('div', 'metric-grid bug-severity-grid'); grid.appendChild(D.bugSeverityChart(bugs));
     wrap.appendChild(grid); return wrap;
   };
   D.arcPath = function (cx, cy, R, r, a0, a1) {
@@ -1563,12 +1576,12 @@
       return entry.racks.some(function (rackEntry) { return selectedRacks[String(rackEntry.rack.id || rackEntry.rack.label)]; });
     });
     var t = D.el('table'), thead = D.el('thead'), hr = D.el('tr');
-    ['Bug', 'State', 'Severity', 'Priority', 'Title', 'Racks', 'Verified Child sources (Rack → Case)'].forEach(function (h) { hr.appendChild(D.el('th', null, h)); });
+    ['Bug', 'State', 'Severity', 'Title', 'Racks', 'Verified Child sources (Rack → Case)'].forEach(function (h) { hr.appendChild(D.el('th', null, h)); });
     thead.appendChild(hr); t.appendChild(thead);
     var tb = D.el('tbody');
     if (!entries.length) {
       var er = D.el('tr'), td = D.el('td', 'empty', 'No Bug passed the Test Case Child ↔ Bug Parent ↔ Case History validation.');
-      td.colSpan = 7; er.appendChild(td); tb.appendChild(er);
+      td.colSpan = 6; er.appendChild(td); tb.appendChild(er);
     }
     entries.forEach(function (entry) {
       var tr = D.el('tr', entry.racks.length === 1 ? 'bug-rack-only' : '');
@@ -1576,8 +1589,6 @@
       var bugCell = D.el('td'); bugCell.appendChild(D.bugLink(D.inventoryBugView(entry))); tr.appendChild(bugCell);
       var stateCell = D.el('td'); stateCell.appendChild(D.chip(entry.bug.state)); tr.appendChild(stateCell);
       tr.appendChild(D.el('td', null, D.severityInfo(entry.bug.severity).label));
-      var priority = D.priorityLevel(entry.bug.priority);
-      tr.appendChild(D.el('td', null, priority ? 'P' + priority : 'Not set'));
       tr.appendChild(D.el('td', null, entry.bug.title));
       var racksCell = D.el('td', 'bug-rack-cell');
       entry.racks.forEach(function (rackEntry) {
@@ -1626,8 +1637,6 @@
     row.appendChild(D.el('span', 'casetitle', n.title));
     row.appendChild(D.chip(n.state));
     row.appendChild(D.testResultBadge(n.latestResult));
-    var metrics = n.metrics || {};
-    if (D.hasMetric(metrics.priority)) row.appendChild(D.metricBadge('Priority', 'P' + (D.priorityLevel(metrics.priority) || metrics.priority), '#c084fc'));
     (n.bugs || []).forEach(function (bug) { row.appendChild(D.bugLink(bug)); });
     if (n.assigned) row.appendChild(D.el('span', 'date', n.assigned));
     row.appendChild(D.el('span', 'date', D.fmt(n.changed)));
@@ -1731,7 +1740,7 @@
   D.featureCaseTable = function (entries, featureName) {
     var scroll = D.el('div', 'feature-table-scroll');
     var table = D.el('table', 'feature-table'), thead = D.el('thead'), header = D.el('tr');
-    ['ID', 'Title', 'State', 'Latest Test Result', 'Changed', 'Priority', 'Actual Start', 'Actual Completion', 'Estimate Start', 'Estimate Completion', 'Script type', 'CRC SDK', 'IGS Owner', 'Linked Bugs', 'Comments'].forEach(function (label) { header.appendChild(D.el('th', null, label)); });
+    ['ID', 'Title', 'State', 'Latest Test Result', 'Changed', 'Actual Start', 'Actual Completion', 'Estimate Start', 'Estimate Completion', 'Script type', 'CRC SDK', 'IGS Owner', 'Linked Bugs', 'Comments'].forEach(function (label) { header.appendChild(D.el('th', null, label)); });
     thead.appendChild(header); table.appendChild(thead);
     var tbody = D.el('tbody');
     entries.forEach(function (entry) {
@@ -1747,8 +1756,6 @@
       else resultCell.textContent = 'No result';
       row.appendChild(resultCell);
       row.appendChild(D.el('td', null, D.fmt(testCase.changed)));
-      var priority = D.priorityLevel(metrics.priority);
-      row.appendChild(D.el('td', null, D.hasMetric(metrics.priority) ? (priority ? 'P' + priority : D.displayFieldValue(metrics.priority)) : '-'));
       row.appendChild(D.el('td', null, D.fmt(execution.actualStartDate)));
       row.appendChild(D.el('td', null, D.fmt(execution.actualCompletionDate)));
       row.appendChild(D.el('td', null, D.fmt(execution.estimateStartDate)));
@@ -2061,8 +2068,6 @@
         grid.appendChild(b1); grid.appendChild(b2); panel.appendChild(grid);
         var b3 = D.box('Rack × State summary table');
         refs.tableBox = D.el('div'); b3.appendChild(refs.tableBox); panel.appendChild(b3);
-        var bPriority = D.box('Test Case completion by Priority — Closed = completed');
-        refs.priorityBox = D.el('div'); bPriority.appendChild(refs.priorityBox); panel.appendChild(bPriority);
         var b4 = D.box('Bug tracking — verified Test Case Child links');
         refs.bugRackBox = D.el('div'); b4.appendChild(refs.bugRackBox);
         refs.bugStatsBox = D.el('div'); b4.appendChild(refs.bugStatsBox);
@@ -2081,8 +2086,6 @@
         var rb2 = D.box('State summary table');
         refs.tableBox = D.el('div'); rb2.appendChild(refs.tableBox);
         g.appendChild(rb1); g.appendChild(rb2); panel.appendChild(g);
-        var rbPriority = D.box('Test Case completion by Priority — Closed = completed');
-        refs.priorityBox = D.el('div'); rbPriority.appendChild(refs.priorityBox); panel.appendChild(rbPriority);
         var rbBugs = D.box(def.rack.label + ' Bug list — verified Test Case Child links');
         refs.bugSummaryBox = D.el('div', 'rack-bug-reconcile'); rbBugs.appendChild(refs.bugSummaryBox);
         refs.bugBox = D.el('div', 'bug-detail-scroll'); rbBugs.appendChild(refs.bugBox); panel.appendChild(rbBugs);
@@ -2142,7 +2145,6 @@
         p.cProgress._val.textContent = outcomes.inProgress;
         p.cBugs._val.textContent = linkedBugs.length + ' / ' + bugCases.length;
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.rackTable(phaseRacks));
-        p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(f));
         p.bugRackBox.innerHTML = ''; p.bugRackBox.appendChild(D.bugRackStats(bugInventory, phaseRacks));
         p.bugStatsBox.innerHTML = ''; p.bugStatsBox.appendChild(D.bugStats(allCases, bugInventory));
         p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable(phaseRacks, bugInventory));
@@ -2163,7 +2165,6 @@
         p.cBugs._val.textContent = rackBugEntries.length;
         var c2 = D.countStates(fc);
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.statsTable(c2));
-        p.priorityBox.innerHTML = ''; p.priorityBox.appendChild(D.priorityCompletionChart(fc));
         p.bugSummaryBox.textContent = 'Reconciled with Overview ' + p.rack.label + ': ' + rackBugEntries.length + ' unique Bugs · ' + rackOnlyBugs + ' Rack-only · ' + (rackBugEntries.length - rackOnlyBugs) + ' shared across Racks.';
         p.bugSummaryBox.setAttribute('data-rack-bug-count', rackBugEntries.length);
         p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable([p.rack], bugInventory));
