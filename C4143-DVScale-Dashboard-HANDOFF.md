@@ -5,8 +5,8 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.17，本分支待合併 `main`） |
-| 最新腳本大小 | 202,554 bytes；SHA-256 `E7A4BE77868DCC2D7E2C022B6BC52F3394060817B9464DE59093E43679837C64` |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.18，本分支待合併 `main`） |
+| 最新腳本大小 | 202,536 bytes；SHA-256 `1DF87625A393F02A8626DB7813E6D5C936CCAC111CF7158ADD0FFF7806E770B8` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
 > 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為移除 Case title 篩選，第 38 節為單一 FPGA teardown Case 排除，第 39 節修正其跨 Phase 的 title 格式差異，第 40 節為 dashboard 資訊精簡與固定時間軸，第 41 節為百分比格式統一，第 42 節為移除 Number_of_cycles 統計。前面章節中的「未完成」為當時狀態，最新狀態以第 42 節為準。
@@ -1213,3 +1213,11 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 
 - Test Runs 區塊標題、共用 `D.testRunsTable()`、欄位順序、最多 100 筆限制、Run／Test Plan hyperlink 與 API status 呈現，恢復為移除前的版本。
 - 保留本次新增的 supplemental refresh：Test Results 載入完成後會重建 Insights，使 Phase 1／Phase 2 都能看到同一套原始 Test Runs 清單格式。
+
+## 48. 2026-11-01 PR #19 Insights 狀態欄位對齊（v1.12.18）
+
+- 以目前 `main`（已包含 PR #25）為基礎，確認 Insights 保留 PR #19 的結果狀態呈現：`RESULTS / CASES`、`RESULT PASSED / RATE`、`RESULT FAILED / RATE`、`NO TEST RESULT`、`UPDATED THIS WEEK`、最新 Test Result 圓餅圖、snapshot change 分組，以及唯讀的 Test Runs / Test Plans 明細表。
+- 移除 `D.insightsPanel()` 中重複的 unreachable `return wrap`，讓 Insights 實作結構與 PR #19 對齊；保留目前主線的 supplemental refresh，因此背景 Test Result 載入完成後 Phase 1／Phase 2 仍會更新各自 Insights。
+- 其他 Overview、Rack、Bug、Execution、Test Features、匯出與資料篩選行為均沿用 PR #25／目前 `main`，本次沒有變更 Azure DevOps organization、Query、Work Item 或 Test Plan。
+- userscript 版本更新為 v1.12.18；Extension manifest/package 版本更新為 v1.3.18。正式 live ADO 仍需在登入頁面按 **Re-run query** 驗證最新結果資料。
+- `node --check`、`git diff --check`、Extension `npm run package`（TypeScript、esbuild、VSIX）通過。userscript 為 202,536 bytes、SHA-256 `1DF87625A393F02A8626DB7813E6D5C936CCAC111CF7158ADD0FFF7806E770B8`；VSIX v1.3.18 為 65,212 bytes、SHA-256 `BF93203A9F78C7C4CA43CB4E26F85ACD812971D29AA012692E1A0F4A6E2C57EE`。
