@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.1
-// @description  Adds tap/click date-time details to Phase/Rack execution timelines built from Actual and Estimated Start/Completion fields.
+// @version      1.12.2
+// @description  Splits Phase 2 only by the exact C4143_ScaleTest_Phase2 Test Case tag while retaining scoped execution timelines.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -422,7 +422,8 @@
     });
     function build(id) {
       var f = byId[id] || {};
-      return { id: id, type: f['System.WorkItemType'] || '?', title: f['System.Title'] || ('#' + id), state: f['System.State'] || '?',
+      var type = f['System.WorkItemType'] || '?';
+      return { id: id, type: type, title: f['System.Title'] || ('#' + id), state: f['System.State'] || '?',
         tags: f['System.Tags'] || '', changed: f['System.ChangedDate'] || null,
         assigned: (f['System.AssignedTo'] && f['System.AssignedTo'].displayName) || '',
         metrics: {
@@ -617,11 +618,15 @@
   D.collect = function (node, type, out) { out = out || []; if (node.type === type) out.push(node); (node.children || []).forEach(function (c) { D.collect(c, type, out); }); return out; };
   D.phaseLabel = function (phase) { return phase === 'phase2' ? 'Phase 2' : 'Phase 1'; };
   D.phaseFileLabel = function () { return D.S.phase === 'phase2' ? 'Phase-2' : 'Phase-1'; };
-  D.casePhase = function (testCase) {
-    var hasPhase2 = String(testCase && testCase.tags || '').split(/[;,]/).some(function (tag) {
-      return String(tag || '').trim().toLowerCase().replace(/[\s_-]+/g, '') === 'phase2';
+  D.phaseFromTags = function (tags) {
+    var hasPhase2Tag = String(tags || '').split(/[;,]/).some(function (tag) {
+      var normalized = String(tag || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+      return normalized === 'c4143scaletestphase2';
     });
-    return hasPhase2 ? 'phase2' : 'phase1';
+    return hasPhase2Tag ? 'phase2' : '';
+  };
+  D.casePhase = function (testCase) {
+    return D.phaseFromTags(testCase && testCase.tags) || 'phase1';
   };
   D.filterNodeForPhase = function (node, phase, keepRoot) {
     if (!node) return null;
