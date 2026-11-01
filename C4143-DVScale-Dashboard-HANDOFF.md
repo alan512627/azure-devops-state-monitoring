@@ -2,14 +2,14 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 文件版本 | 2.7 |
+| 文件版本 | 2.8 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.6，工作分支已發布，待合併 `main`） |
-| 最新腳本大小 | 199377 bytes（約 194.7 KB） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.7，工作分支已發布，待合併 `main`） |
+| 最新腳本大小 | 200393 bytes（約 195.7 KB） |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
-> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為目前移除 Case title 篩選的規則。前面章節中的「未完成」為當時狀態，最新狀態以第 37 節為準。
+> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為舊的完整 Phase／Rack Tag placement 驗證，第 36 節為 Rack Feature hierarchy 規則，第 37 節為移除 Case title 篩選，第 38 節為單一 FPGA teardown Case 的明確排除。前面章節中的「未完成」為當時狀態，最新狀態以第 38 節為準。
 
 > **2026-08-14 的 Live Query 曾驗證到 5 Racks × 每櫃 58 Test Cases = 290 Test Cases；這是當時的查詢結果，不再作為固定 Expected 基準。v1.8.6 只顯示每次 Query 的實際數量。文件中的 54／270、58／290 等數值均為各版本當時的驗證紀錄。**
 
@@ -1118,3 +1118,19 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 此為本機 fixture 驗證，並非 Azure DevOps live 總數。正式確認時請在登入的 Dashboard 按 **Re-run query**，檢視新增 review 清單後決定哪些 title 應另列為未來的排除範圍。
 - userscript v1.12.6：199,377 bytes，SHA-256 `E387B0AFAF2A2E898CF61CA6B0729B755273A096E79A8B38FC94389430DD024C`。Extension v1.3.6 已通過 TypeScript check、esbuild 與 VSIX package；VSIX 為 64,496 bytes，SHA-256 `1E734D982DDD8C8AF67821A5E208B395344E3FF3E644A8E5E9CADD35ED29DDAD`。讀回 VSIX 已確認包含 userscript v1.12.6、`CASE_TITLE_REFERENCE`、`additionalTitleReview` 與 manifest v1.3.6。
 - 已推送 commit `0136929` 至 `local/phase-tabs`，並建立 Draft PR [#19](https://github.com/alan512627/azure-devops-state-monitoring/pull/19)（建立時 GitHub 回報 `CLEAN`）。未直接合併 `main`；Tampermonkey 的固定 `main` URL 會在 PR 合併後取得 v1.12.6。
+
+## 38. 2026-11-01 FPGA teardown Case 明確排除（v1.12.7）
+
+### 38.1 唯一額外排除
+
+- 依使用者指定，精確 title `[System][Functionality] Dynamically Reconfig Glacier Peak / Castle Peak FPGA image (full link teardown)` 加入 `D.EXCLUDED_CASE_TITLES`，原因固定為 `EXCLUDED BY CONFIGURED SCOPE`。
+- 這不是恢復 41-title 白名單：其他所有位於 Rack Feature hierarchy 且有有效 Phase tag 的 Case 仍然納入。只有這一筆 title 在每個 Rack／Phase 出現時排除。
+- 排除同步套用於 hierarchy、Overview／Rack cards、State／Priority／metric charts、Bug relation 讀取、Test Result input、timeline、Test Features、CSV／Excel 與 snapshot comparison，避免任一子視圖重新把它算回來。
+- Case exclusion audit 保留每筆被排除的 Case hyperlink、Rack Feature、tags、State 與 `EXCLUDED BY CONFIGURED SCOPE`，不會靜默隱藏資料。`EXCLUDED CASES` 卡片同時涵蓋 Phase tag 問題與此明確排除。
+
+### 38.2 本機驗證與發布
+
+- fixture 的每個 Rack／Phase 放入該 FPGA teardown Case；正常情境 Phase 1／Phase 2 各為 205 Cases、每 Rack 41，且 consistency matrix 為 41／41。Phase 1 exclusion audit 列出五筆設定排除；Phase 2 tab 同樣為 205。
+- `?additional=1` fixture 保留另外兩個非 reference title 以確認原有 review 沒有失效：兩個 Phase 各為 215、每 Rack 43，Additional Case title review 顯示 10 筆；FPGA teardown Case 仍不會被算入 review 或統計。
+- userscript v1.12.7：200,393 bytes，SHA-256 `27FA06F276FC1CDF04067B29439391480B47166078A12C6FC94986845F6CB5D9`。Extension v1.3.7 已通過 TypeScript check、esbuild 與 VSIX package；VSIX 為 64,802 bytes，SHA-256 `CE5B3E26E43410956615DE7C104DA5CBD49F12DEBC95197757214F17712EBB6E`。讀回 VSIX 已確認包含 userscript v1.12.7、`EXCLUDED_CASE_TITLES`、`caseIsIncluded` 與 manifest v1.3.7。正式 Azure DevOps 需在登入 Dashboard 按 **Re-run query**，確認實際每 Rack／Phase 都回到使用者預期的 41／205。
+- 已推送 commit `c398f86` 至 `local/phase-tabs`，並建立 Draft PR [#20](https://github.com/alan512627/azure-devops-state-monitoring/pull/20)（建立時 GitHub 回報 `CLEAN`）。未直接合併 `main`；Tampermonkey 的固定 `main` URL 會在 PR 合併後取得 v1.12.7。
