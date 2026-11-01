@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.24
-// @description  Uses five fixed Execute Test Point outcomes by Rack with suite fallback matching, distinct colors, compact metrics, and staged background supplemental loading.
+// @version      1.12.25
+// @description  Uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -618,6 +618,28 @@
     });
     return [].concat.apply([], suitePoints);
   };
+  // Query Execute Test Points directly by Test Case ID across every plan/suite (Points - Get Points By Query).
+  // Avoids scanning every Test Plan in the project, which only sees the first page of plans/points in a large org.
+  D.fetchTestPointsByCaseIds = async function (base, caseIds) {
+    var ids = caseIds.map(function (id) { return parseInt(id, 10); }).filter(function (id) { return !isNaN(id); });
+    var batches = [];
+    for (var i = 0; i < ids.length; i += 100) batches.push(ids.slice(i, i + 100));
+    var pages = await D.mapLimit(batches, 3, async function (batch) {
+      var output = [], skip = 0, top = 1000;
+      while (skip < 20000) {
+        var response = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/test/points?$skip=' + skip + '&$top=' + top + '&api-version=7.1', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pointsFilter: { testcaseIds: batch } })
+        });
+        var values = response.points || response.value || [];
+        output = output.concat(values);
+        if (values.length < top) break;
+        skip += values.length;
+      }
+      return output;
+    });
+    return [].concat.apply([], pages);
+  };
   D.testPointCaseId = function (point) {
     var ref = point && (point.testCaseReference || point.testCase || point.testCaseRef) || {};
     return ref.id != null ? String(ref.id) : (point && point.testCaseId != null ? String(point.testCaseId) : '');
@@ -634,14 +656,14 @@
   };
   D.testPointOutcome = function (point) {
     var latest = D.testPointResultRecord(point);
-    return String((latest && latest.outcome) || (point && point.outcome) || (point && point.state) || '').trim();
+    return String((latest && latest.outcome) || (point && point.outcome) || '').trim();
   };
   D.testPointDate = function (point) {
     var latest = D.testPointResultRecord(point);
-    return (latest && (latest.lastUpdatedDate || latest.completedDate || latest.dateCompleted)) || point && (point.lastUpdatedDate || point.updatedDate) || '';
+    return (point && (point.lastUpdatedDate || point.updatedDate)) || (latest && (latest.lastUpdatedDate || latest.completedDate || latest.dateCompleted || latest.lastResultDetails && latest.lastResultDetails.dateCompleted)) || (point && point.lastResultDetails && point.lastResultDetails.dateCompleted) || '';
   };
   D.testPointUrl = function (point) {
-    var planId = point && (point.planId || point.plan && point.plan.id), suiteId = point && (point.suiteId || point.suite && point.suite.id), pointId = point && point.id;
+    var planId = point && (point.planId || point.testPlan && point.testPlan.id || point.plan && point.plan.id), suiteId = point && (point.suiteId || point.testSuite && point.testSuite.id || point.suite && point.suite.id), pointId = point && point.id;
     if (planId == null || suiteId == null || pointId == null) return '';
     return D.CFG.org + '/' + encodeURIComponent(D.CFG.project) + '/_testManagement?planId=' + encodeURIComponent(planId) + '&suiteId=' + encodeURIComponent(suiteId) + '&pointId=' + encodeURIComponent(pointId);
   };
@@ -659,11 +681,18 @@
       planDetails = planResponse.value || [];
       planDetails.forEach(function (plan) { planMap[String(plan.id)] = plan.name || ('Plan ' + plan.id); });
     } catch (planLoadError) { planError = String((planLoadError && planLoadError.message) || planLoadError); }
-    var pointSets = await D.mapLimit(planDetails, 3, async function (plan) {
-      try { return { plan: plan, points: await D.fetchPlanTestPoints(base, plan) }; }
-      catch (error) { return { plan: plan, points: [], error: String((error && error.message) || error) }; }
-    });
-    var byId = {}, byTitle = {}, pointMatches = 0, pointErrors = [];
+    var pointSets = [], pointSource = 'case-id query';
+    try {
+      var byCasePoints = await D.fetchTestPointsByCaseIds(base, cases.map(function (testCase) { return testCase.id; }));
+      pointSets = [{ plan: null, points: byCasePoints }];
+    } catch (pointQueryError) {
+      pointSource = 'plan scan (case-id query failed: ' + String((pointQueryError && pointQueryError.message) || pointQueryError) + ')';
+      pointSets = await D.mapLimit(planDetails, 3, async function (plan) {
+        try { return { plan: plan, points: await D.fetchPlanTestPoints(base, plan) }; }
+        catch (error) { return { plan: plan, points: [], error: String((error && error.message) || error) }; }
+      });
+    }
+    var byId = {}, byTitle = {}, pointMatches = 0, pointErrors = [], matchedCaseIds = {};
     cases.forEach(function (testCase) {
       byId[String(testCase.id)] = testCase;
       var key = D.normalizedTitle(testCase.title);
@@ -672,7 +701,7 @@
       testCase.latestTestPoint = null;
     });
     pointSets.forEach(function (set) {
-      if (set.error) pointErrors.push((set.plan && set.plan.name || 'Plan ' + set.plan.id) + ': ' + set.error);
+      if (set.error) pointErrors.push((set.plan && set.plan.name || 'Plan ' + (set.plan && set.plan.id)) + ': ' + set.error);
       (set.points || []).forEach(function (point) {
         var ref = point.testCaseReference || point.testCase || point.testCaseRef || {}, caseId = D.testPointCaseId(point);
         var testCase = byId[caseId] || null;
@@ -681,10 +710,12 @@
           if (matches.length === 1) testCase = matches[0];
         }
         if (!testCase) return;
-        var mapped = { id: point.id, outcome: D.testPointOutcome(point) || 'Unspecified', state: point.state || '', lastUpdatedDate: D.testPointDate(point), planId: String(set.plan.id), planName: set.plan.name || ('Plan ' + set.plan.id), suiteId: point.suiteId || point.suite && point.suite.id || '', url: D.testPointUrl(Object.assign({}, point, { planId: set.plan.id })) };
+        var planRef = set.plan || point.testPlan || point.plan || {}, planId = planRef.id != null ? String(planRef.id) : '';
+        var planName = planRef.name || planMap[planId] || (planId ? 'Plan ' + planId : 'Test Plan');
+        var mapped = { id: point.id, outcome: D.testPointOutcome(point) || 'Unspecified', state: point.state || '', lastUpdatedDate: D.testPointDate(point), planId: planId, planName: planName, suiteId: point.suiteId || point.testSuite && point.testSuite.id || point.suite && point.suite.id || '', url: D.testPointUrl(Object.assign({}, point, { planId: planId })) };
         var current = testCase.latestTestPoint;
         if (!current || String(mapped.lastUpdatedDate || '') > String(current.lastUpdatedDate || '') || (String(mapped.lastUpdatedDate || '') === String(current.lastUpdatedDate || '') && (+mapped.id || 0) > (+current.id || 0))) testCase.latestTestPoint = mapped;
-        pointMatches++;
+        if (!matchedCaseIds[testCase.id]) { matchedCaseIds[testCase.id] = true; pointMatches++; }
       });
     });
     var runResponses = await D.mapLimit(windows, 2, function (windowRange) {
@@ -729,7 +760,7 @@
         return { id: run.id, name: run.name || ('Run ' + run.id), planId: planId, planName: planMap[planId] || (run.plan && run.plan.name) || '', state: run.state || '', startedDate: run.startedDate || null, completedDate: run.completedDate || null, resultCount: run.resultCount || 0, url: D.testRunUrl(run.id), error: run._resultError || '' };
       }),
       testPlans: Object.keys(planMap).map(function (id) { return { id: id, name: planMap[id] }; }), testPlanWarning: planError,
-      matchedResults: matchedResults, pointMatches: pointMatches, pointErrors: pointErrors, summary: summary, loadedAt: new Date().toISOString()
+      matchedResults: matchedResults, pointMatches: pointMatches, pointErrors: pointErrors, pointSource: pointSource, summary: summary, loadedAt: new Date().toISOString()
     };
   };
   D.isFailedTestOutcome = function (outcome) { return /^(failed|blocked|aborted|error|timeout)$/i.test(String(outcome || '').trim()); };
@@ -1207,7 +1238,7 @@
   };
   D.pie = function (counts, orderFn, colorFn) {
     orderFn = orderFn || D.orderStates; colorFn = colorFn || D.colorFor;
-    var size = 300, keys = orderFn(Object.keys(counts)), total = D.sum(counts);
+    var size = 300, keys = orderFn(Object.keys(counts)).filter(function (k) { return +counts[k] > 0; }), total = D.sum(counts);
     var s = D.svg('svg', { viewBox: '0 0 ' + size + ' ' + size, width: '100%', height: '100%', preserveAspectRatio: 'xMidYMid meet' });
     var cx = size / 2, cy = size / 2, R = size / 2 - 10, r = R * 0.58;
     if (!total) {
@@ -2318,7 +2349,7 @@
     var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Runs/Results are unavailable; open Insights for details.' : '';
-    if (D.S.testResults && D.S.testResults.status === 'ok') testNote += ' Test Point matches: ' + (D.S.testResults.pointMatches || 0) + '/' + allCases.length + (D.S.testResults.pointErrors && D.S.testResults.pointErrors.length ? ' (' + D.S.testResults.pointErrors.length + ' plan errors)' : '') + '.';
+    if (D.S.testResults && D.S.testResults.status === 'ok') testNote += ' Test Point matches: ' + (D.S.testResults.pointMatches || 0) + '/' + allCases.length + ' via ' + (D.S.testResults.pointSource || 'plan scan') + (D.S.testResults.pointErrors && D.S.testResults.pointErrors.length ? ' (' + D.S.testResults.pointErrors.length + ' plan errors)' : '') + '.';
     var timingNote = D.S.lastLoadTiming ? ' Load timing: core ' + D.S.lastLoadTiming.coreMs + 's, supplemental ' + D.S.lastLoadTiming.supplementalMs + 's.' : '';
     var rl = (D.RANGES.filter(function (x) { return x[0] === D.S.range; })[0] || ['', ''])[1];
     var ml = (D.MODES.filter(function (x) { return x[0] === D.S.mode; })[0] || ['', ''])[1];

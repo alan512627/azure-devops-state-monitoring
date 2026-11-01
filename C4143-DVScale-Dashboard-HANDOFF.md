@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.24，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.25，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1265,3 +1265,11 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 若 root suite 的遞迴 Test Point 查詢回傳空集合，改以 Test Plan 的 suite tree 展開所有 child suites，再逐 suite 讀取 Test Points；同時接受 `testCaseReference`、`testCase`、`testCaseRef` 與 `testCaseId` 的 Case ID 格式。
 - Live query 提示新增 `Test Point matches: matched/total`，可直接確認 Execute Test Point 是否成功對應目前 Query Case；若計畫讀取失敗，也會列出 plan error 數量，不再只顯示全部 Active 而無法判斷原因。
 - 未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point；API 仍為唯讀。
+
+## 55. 2026-11-02 以 Test Case ID 直接查詢 Execute Test Point outcome（v1.12.25）
+
+- 根因：舊做法先列出 Dev project 全部 Test Plan，再逐 plan 掃 root suite 的 Test Points；`testplan/plans` 與 `TestPoint` 都以 `x-ms-continuationtoken` header 分頁，但 `D.apiFetch` 只回傳 JSON，只讀得到第一頁。azurecsi/Dev 的 plan 數量龐大，C4143 plan／points 常不在第一頁，導致 Case 對不到 Test Point 而全部落入 `Active`。
+- 新增 `D.fetchTestPointsByCaseIds`：改用 `POST _apis/test/points?api-version=7.1`（Points - Get Points By Query），以目前 Query 的 Case ID 每 100 筆一批、`$skip/$top` 分頁，跨所有 plan／suite 取回 Execute Test Point 的 `outcome`；同一 Case 多個 point 取 `lastUpdatedDate` 最新者。舊的逐 plan 掃描僅在新查詢失敗時作為 fallback。
+- `outcome` 為空時不再以 point `state`（如 `Ready`）代替；plan／suite 連結支援 `testPlan.id`、`testSuite.id`；`Test Point matches` 改為計算「對到的 Case 數」並附上來源（`via case-id query` 或 `plan scan`）。
+- 修正 `D.pie`：過濾 0 筆的 key，單一 outcome 佔 100% 時改畫完整圓環，不再因起訖角度重疊而整個圓餅空白。
+- 官方 API 依據：[Points - Get Points By Query](https://learn.microsoft.com/en-us/rest/api/azure/devops/test/points/get-points-by-query?view=azure-devops-rest-7.1)。此 POST 為查詢用途，唯讀；未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point。
