@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.20，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.21，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1238,3 +1238,11 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 共用百分比格式統一使用 `D.percent()`：最多一位小數（例如 `80.3%`），整數不顯示多餘的 `.0`，零值顯示 `0%`；Outcome chart、table 與 tooltip 均套用同一格式。
 - `node --check`、`git diff --check`、Extension `npm run package`（TypeScript、esbuild、VSIX）與本機 fixture 的 Overview／Rack Outcome UI 驗證通過。userscript v1.12.20：208,132 bytes，SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638`；Extension v1.3.20 VSIX：66,348 bytes，SHA-256 `722B055886A322BFF48318BB7E7CE5F7E1DD8DA81194ED38B3C44690777B8B22`。
 - 未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Result；正式 live ADO 仍需在登入頁按 **Re-run query** 確認最新 Outcome 數量。
+
+## 51. 2026-11-01 改以 Execute Test Point outcome 為 Case outcome 來源（v1.12.21）
+
+- 使用 Azure DevOps Test Plans 的 Test Point API，從每個 Test Plan 的 root suite 遞迴讀取 Test Points，依 `testCaseReference.id` 對應目前 Query 的 Case；每個 Case 只保留最後更新的 Test Point。
+- Overview、Rack Outcome 圓餅／長條圖、Pass／Fail rate、Case row badge、Test Features result 欄位與篩選文字均以 Execute Test Point 的 `outcome` 為準。Test Runs／Results 仍保留供 Insights 的 Test Run 清單與歷史補充，不再作為每個 Case 的主要 outcome fallback。
+- 若 Case 沒有可對應的 Test Point 或 Test Point API 無法讀取，該 Case 顯示 `No Result`，不會以 Test Run 結果或 Work Item State 代替；Test Point API 的分頁／計畫錯誤會保留在 supplemental warning 中。
+- 官方 API 依據：[Test Point - Get Points List](https://learn.microsoft.com/en-us/rest/api/azure/devops/testplan/test-point/get-points-list?view=azure-devops-rest-7.1)、[Test Plans - List](https://learn.microsoft.com/en-us/rest/api/azure/devops/testplan/test-plans/list?view=azure-devops-rest-7.1)。
+- 本次未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point；正式 live ADO 需重新整理或按 **Re-run query**，並確認畫面來源提示為 `Azure DevOps Test Plans Test Points (Execute)`。
