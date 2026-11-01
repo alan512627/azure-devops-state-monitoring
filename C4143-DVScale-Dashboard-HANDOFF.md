@@ -1094,3 +1094,4 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 另一個少資料情境：只移除 Phase 2 Rack 5 一筆 Case 的 Phase tag，稽核表只顯示 Rack 5 的 Phase 2 為 40，其餘維持 41，並正確警告資料不一致。
 - userscript v1.12.4：196,931 bytes，SHA-256 `7D1AEDD7DE17CCD676B82BB68FC3D9504C878F65F40B2BABAE4A415635EB362B`。Extension v1.3.4 已執行 TypeScript check、esbuild 與 VSIX package；VSIX 為 64,117 bytes，SHA-256 `6994DF18CB9605EA61C4B61229AA5270F2BA58716030AD05BF9C41053573839E`。讀回 VSIX 已確認包含 userscript v1.12.4、`rackConsistency`、Rack Feature-only 說明與 manifest v1.3.4。
 - Browser plugin 不在本工作階段，依既有維護流程用 bundled Playwright 執行 fixture／互動與響應式驗證。正式 Azure DevOps 的實際 Case 數仍須在登入的 Dashboard 按 **Re-run query** 讀回，並以此表確認 Phase 1／Phase 2 與五櫃是否全部相同。
+- 已推送 commit `def55a3` 至 `local/phase-tabs`，並建立 Draft PR [#18](https://github.com/alan512627/azure-devops-state-monitoring/pull/18)（建立時 GitHub 回報 `CLEAN`）。依要求未直接合併 `main`；Tampermonkey 的固定 `main` URL 會在 PR 合併後取得 v1.12.4。
