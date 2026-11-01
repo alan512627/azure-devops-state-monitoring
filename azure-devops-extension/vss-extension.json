@@ -1,9 +1,9 @@
 {
   "manifestVersion": 1,
   "id": "c4143-dvscale-dashboard",
-  "version": "1.3.1",
+  "version": "1.3.3",
   "name": "C4143 DV-Scale Dashboard",
-  "description": "Track approved Phase 1 and Phase 2 Test Cases with click/tap date-time details, Actual and Estimated execution timelines, live State, Test Results, Bugs, metrics, XLSX reports and snapshots.",
+  "description": "Track approved Phase 1 and Phase 2 Test Cases using exact Phase and Rack tags, with execution timelines, Test Results, Bugs, reports and snapshots.",
   "publisher": "alan512627",
   "public": false,
   "categories": ["Azure Boards", "Azure Test Plans"],

@@ -5,11 +5,11 @@
 | 文件版本 | 2.5 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.1，工作分支已發布，待合併 `main`） |
-| 最新腳本大小 | 191118 bytes（約 186.6 KB） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.3，工作分支已發布，待合併 `main`） |
+| 最新腳本大小 | 194105 bytes（約 189.6 KB） |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
-> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細。前面章節中的「未完成」為當時狀態，最新本機狀態以第 33 節為準。
+> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細，第 34 節為 live Phase 2 完整 Tag 分流修正，第 35 節為完整 Phase／Rack Tag placement 驗證。前面章節中的「未完成」為當時狀態，最新狀態以第 35 節為準。
 
 > **2026-08-14 的 Live Query 曾驗證到 5 Racks × 每櫃 58 Test Cases = 290 Test Cases；這是當時的查詢結果，不再作為固定 Expected 基準。v1.8.6 只顯示每次 Query 的實際數量。文件中的 54／270、58／290 等數值均為各版本當時的驗證紀錄。**
 
@@ -48,7 +48,7 @@
 
 | 檔案 / Key | 說明 |
 | --- | --- |
-| `C4143-DVScale-Dashboard.user.js` | 最新主交付物與固定安裝入口，Tampermonkey userscript v1.12.1（工作分支已發布，待合併 `main`） |
+| `C4143-DVScale-Dashboard.user.js` | 最新主交付物與固定安裝入口，Tampermonkey userscript v1.12.3（工作分支已發布，待合併 `main`） |
 | `azure-devops-extension/` | Azure Test Plans Hub 與 Dashboard Widget 原始碼、manifest 與建置流程 |
 | `release/C4143-DVScale-Dashboard-Extension.vsix` | 可上傳 Visual Studio Marketplace 的 Private Extension 套件 |
 | `C4143-DVScale-Dashboard.user_v1.6.1-bug-priority-severity.js` | 上一個穩定版本，保留供回退與比對 |
@@ -1028,3 +1028,46 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - Browser plugin 不在本工作階段，因此依維護流程使用 bundled Playwright 做互動與響應式驗證；這些結果為本機 fixture，正式 Azure DevOps 已登入 Live Query 的實際日期值仍待使用者按 **Re-run query** 確認。
 - Extension 已同步升為 v1.3.1；userscript 為 191,118 bytes（SHA-256 `40C35404DEEB53742A4CB25A4CAA3C2E7DDF0801A72D9A65201A8178D7162ECC`），重新封裝的 VSIX 為 62,624 bytes（SHA-256 `564C2D6E079EF86A995896D5C93C1B9C8300BE6E96D68D8DA204FF888F37E0F8`）。VSIX 已讀回確認內含 userscript v1.12.1、`timeline-detail-toggle` 與 manifest v1.3.1。
 - 依使用者後續發布指示，本版提交並推送至工作分支；在使用者明確同意前不直接合併 `main`。Tampermonkey 固定更新網址仍讀取 `main`，因此必須完成 PR merge 才會自動取得 v1.12.1。
+
+## 34. 2026-11-01 Live Phase 2 完整 Tag 分流修正（v1.12.2）
+
+### 34.1 即時診斷與根因
+
+- 使用者提供的 live 截圖及已登入 Azure DevOps 頁面讀回一致顯示：Phase 1 被錯誤列為 10 Racks／60 approved Cases，Phase 2 為 0，Rack 1～5 各重複兩次。
+- 唯讀 REST 查核確認 Query 根節點 `3682950` 下有兩個 Phase Epic：`3682952` 為 `[Phase 1] Scale Validation Requirements`、`4131819` 為 `[Phase 2] Scale Validation Requirements`；其下各有自己的 Rack 1～5。
+- Phase 2 Case `4131838` 的實際 `System.Tags` 是 `C4143_DVT; C4143_ScaleTest_Phase2; EF_DV_Scale; EF_Master_Candidate; Rack01`。舊版只接受正規化後完全等於 `phase2` 的單一 tag，因此沒有辨識 live 使用的 `C4143_ScaleTest_Phase2`，所有 Case 都回落 Phase 1。
+
+### 34.2 修正規則
+
+- `D.phaseFromTags()` 只在正規化後的完整 tag 等於 `c4143scaletestphase2` 時回傳 Phase 2；這正是畫面紅框及 live API 中的 `C4143_ScaleTest_Phase2`。
+- `Phase2`、`Other_ScaleTest_Phase2` 或僅因文字以 Phase2 結尾的其他 tag 都不會命中；沒有指定完整 Tag 的 Case 一律歸 Phase 1，不使用父 Epic 補判。
+- 這項修正只讀取 Query 已回傳的 Work Item fields／hierarchy，不建立或修改 Azure DevOps Query、Epic、Rack、Case 或 Tags。
+
+### 34.3 驗證與發布界線
+
+- 本機 fixture 全面改用指定的完整 `C4143_ScaleTest_Phase2` Tag。結果 Phase 1／Phase 2 各為 205 approved Cases、5 Racks，兩個 Phase 的左側分頁都只有一組 Rack 1～5。
+- 1440 × 900 滑鼠切換與 390 × 844 touch 切換均通過；手機 body／viewport 同為 390px，Console／page errors 為 0。完整 live Tag 命中 Phase 2，而 `Phase2`、相似尾碼 Tag 及無 Tag Case 均未被誤判。
+- 即時 API 已證明錯誤來源與目前 Epic／Tag 格式；修正版 live 畫面仍需 Tampermonkey 取得 v1.12.2 後按 **Re-run query**，才能確認當下兩個 Phase 的實際 41-title included／excluded 數量。
+- Extension 同步升為 v1.3.2 並重新封裝；userscript 為 191,274 bytes（SHA-256 `972BBA22CB3DA9BED80F965B30684C11F1FD54FFEABA484DF773944A1569B1EE`），VSIX 為 62,654 bytes（SHA-256 `9F1A65D321A008350636378808D6B149DD4FAA98B70ABE1459136C58F342BB2C`）。VSIX 已讀回確認內含 userscript v1.12.2、完整 `c4143scaletestphase2` 判斷與 manifest v1.3.2。
+- PR #16 已在診斷期間合併 v1.12.1；本次 v1.12.2 Tag 修正更新同一個 `local/phase-tabs` 工作分支，另建立 Draft PR #17。不直接合併 `main`；Tampermonkey 仍須 PR #17 merge 後才會從固定更新網址取得 v1.12.2。
+
+## 35. 2026-11-01 完整 Phase／Rack Tag placement 驗證（v1.12.3）
+
+### 35.1 Case 位置規則
+
+- Phase 1 Case 必須有完整 `C4143_ScaleTest_Phase1` Tag；Phase 2 Case 必須有完整 `C4143_ScaleTest_Phase2` Tag。兩者同時存在、都不存在、或使用簡寫／相似名稱時都不視為已定位。
+- Case 也必須有唯一一個 `Rack01`～`Rack05` Tag。Tag 的 Rack number 必須與 Query hierarchy 中該 Case 所在 Rack 相同，才會出現在該 Phase 的該 Rack 下。
+- 不會依 Tag 自動移動 Case 到另一個 Rack，因為這會偽造 Azure DevOps hierarchy；Tag 與 hierarchy 不一致時排除並顯示 `RACK TAG MISMATCH`，供修正來源資料。
+
+### 35.2 即時證據與 audit
+
+- 使用者提供的 Phase 1 Case `3689577` 顯示 `C4143_ScaleTest_Phase1` 與 `Rack04`；先前唯讀 REST 讀取的 Phase 2 Case `4131838` 顯示 `C4143_ScaleTest_Phase2` 與 `Rack01`。這些是 v1.12.3 的完整比對目標。
+- Scope audit 新增 Case Tags 欄位及 Expected tag / approved title 欄位。Phase／Rack 問題分別顯示 `PHASE TAG MISSING OR CONFLICT`、`RACK TAG MISSING OR CONFLICT`、`RACK TAG MISMATCH`，不再與 title mismatch 混在一起。
+
+### 35.3 本機驗證與發布界線
+
+- 正常 fixture：每個 Phase 的每個 Case 都有相符的完整 Phase + Rack Tag，Phase 1／Phase 2 各 205 approved Cases、5 Racks，左側分頁都只顯示一組 Rack 1～5。
+- 錯置 fixture：Phase 1 Rack 1 Case 改為 `Rack02`、Phase 2 Rack 1 Case 移除 Phase Tag 後，兩個 Phase 各減為 204 included Cases；錯置 Case 不會出現在錯誤 Rack，Scope audit 顯示原因、實際 Tag 與預期 Tag。
+- 1440 × 900 與 390 × 844 Playwright QA 通過；手機沒有 body 水平溢出，Console／page errors 為 0。正式登入頁的 v1.12.3 live totals 尚待 PR merge 後按 **Re-run query** 讀回。
+- Extension 同步升為 v1.3.3 並重新封裝；userscript 為 194,105 bytes（SHA-256 `E75F5F7B0289CA5AE431C66391589CB567A4B96DB0EC13681DC571464AC82311`），VSIX 為 63,429 bytes（SHA-256 `E6AA55212D667F7A7508CC8A34F16DC2D3C7F86144EBC3CEBC51A30D651FC46C`）。VSIX 已讀回確認內含 userscript v1.12.3、`placementMatch`、完整 Phase 1／2 與 Rack01-Rack05 判斷，以及 manifest v1.3.3。
+- 本版更新既有 Draft PR #17；不直接合併 `main`，Tampermonkey 須 PR merge 後才會取得 v1.12.3。
