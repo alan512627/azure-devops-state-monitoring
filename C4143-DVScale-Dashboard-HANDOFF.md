@@ -1049,4 +1049,4 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 1440 × 900 滑鼠切換與 390 × 844 touch 切換均通過；手機 body／viewport 同為 390px，Console／page errors 為 0。完整 live Tag 命中 Phase 2，而 `Phase2`、相似尾碼 Tag 及無 Tag Case 均未被誤判。
 - 即時 API 已證明錯誤來源與目前 Epic／Tag 格式；修正版 live 畫面仍需 Tampermonkey 取得 v1.12.2 後按 **Re-run query**，才能確認當下兩個 Phase 的實際 41-title included／excluded 數量。
 - Extension 同步升為 v1.3.2 並重新封裝；userscript 為 191,274 bytes（SHA-256 `972BBA22CB3DA9BED80F965B30684C11F1FD54FFEABA484DF773944A1569B1EE`），VSIX 為 62,654 bytes（SHA-256 `9F1A65D321A008350636378808D6B149DD4FAA98B70ABE1459136C58F342BB2C`）。VSIX 已讀回確認內含 userscript v1.12.2、完整 `c4143scaletestphase2` 判斷與 manifest v1.3.2。
-- 本版更新同一個 `local/phase-tabs` 工作分支與 Draft PR #16；不直接合併 `main`。Tampermonkey 仍須 PR merge 後才會從固定更新網址取得 v1.12.2。
+- PR #16 已在診斷期間合併 v1.12.1；本次 v1.12.2 Tag 修正更新同一個 `local/phase-tabs` 工作分支，另建立 Draft PR #17。不直接合併 `main`；Tampermonkey 仍須 PR #17 merge 後才會從固定更新網址取得 v1.12.2。
