@@ -2,14 +2,14 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 文件版本 | 2.4 |
+| 文件版本 | 2.5 |
 | 初版日期 | 2026-07-28 |
-| 最後更新 | 2026-09-08 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.10.3） |
-| 最新腳本大小 | 154161 bytes（約 150.5 KB） |
+| 最後更新 | 2026-11-01 |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.1，工作分支已發布，待合併 `main`） |
+| 最新腳本大小 | 191118 bytes（約 186.6 KB） |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
-> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進。前面章節中的「未完成」為當時狀態，最新完成狀態以第 29 節為準。
+> 第 1～12 節保留 v1.2 建置時的原始設計與調查紀錄；第 13 節為 v1.3～v1.6.2 的後續開發補充，第 14～23 節記錄 v1.7.0～v1.8.5 的演進，第 24 節為 v1.8.6，第 25 節為 v1.9.0 Insights、報表、快照比較與 Azure DevOps Extension，第 26 節為 v1.10.0 多專案 Query 選單，第 27～29 節為 Rack-aware Bug 對帳及 Link／History 規則演進，第 30 節為 Phase 1／Phase 2 主分頁，第 31 節為兩個 Phase 共用的 41-title 統計白名單，第 32 節為 Execution Timeline，第 33 節為 Case 日期時間展開明細。前面章節中的「未完成」為當時狀態，最新本機狀態以第 33 節為準。
 
 > **2026-08-14 的 Live Query 曾驗證到 5 Racks × 每櫃 58 Test Cases = 290 Test Cases；這是當時的查詢結果，不再作為固定 Expected 基準。v1.8.6 只顯示每次 Query 的實際數量。文件中的 54／270、58／290 等數值均為各版本當時的驗證紀錄。**
 
@@ -48,7 +48,7 @@
 
 | 檔案 / Key | 說明 |
 | --- | --- |
-| `C4143-DVScale-Dashboard.user.js` | 最新主交付物與固定安裝入口，Tampermonkey userscript v1.10.3 |
+| `C4143-DVScale-Dashboard.user.js` | 最新主交付物與固定安裝入口，Tampermonkey userscript v1.12.1（工作分支已發布，待合併 `main`） |
 | `azure-devops-extension/` | Azure Test Plans Hub 與 Dashboard Widget 原始碼、manifest 與建置流程 |
 | `release/C4143-DVScale-Dashboard-Extension.vsix` | 可上傳 Visual Studio Marketplace 的 Private Extension 套件 |
 | `C4143-DVScale-Dashboard.user_v1.6.1-bug-priority-severity.js` | 上一個穩定版本，保留供回退與比對 |
@@ -324,6 +324,7 @@ document-idle → hash 含 dvdash？ → D.boot()
 | v1.10.1 | 新增共用 Bug × Rack inventory；Overview 顯示每 Rack Bug 統計與 Rack 欄位、單 Rack Bug 高亮，Rack 分頁新增與 Overview 對帳的 Bug list |
 | v1.10.2 | Bug 僅採用 Test Case History 中 `relations.added` 的 Related link，並限制為目前仍存在且目標型別為 Bug；清單逐筆顯示 Rack、Case、加入時間與加入者 |
 | v1.10.3 | Bug 改採 Test Case 的 Child link；只有 Case Child→Bug、Bug Parent→同一 Case、Case History Added Child 三者一致才列入，並回報不一致或 History 失敗數量 |
+| v1.11.0 | 依 Case `Phase2` tag 分成 Phase 1／Phase 2 主分頁；各自統計 Rack、State、Test Result Outcome、Bug、Priority、Sample／Cycles／Duration、Test Features 與報表 |
 
 ---
 
@@ -935,3 +936,95 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 1440 × 900 與 390 × 844 Playwright QA 通過；行動版 `document.scrollWidth = 390`，Browser Console／page errors 為 0。
 - JavaScript syntax 與 `git diff --check` 通過。Extension v1.1.3 的 TypeScript、esbuild 與 VSIX package 均通過；VSIX 為 54,204 bytes，內含 userscript v1.10.3、Hub bootstrap、Widget、manifest 與 icon。
 - 所有驗證均為唯讀；沒有建立、修改或刪除 Azure DevOps Query、Work Item 或 organization。正式 Bug 數量仍需在 Tampermonkey 更新至 v1.10.3 後，於已登入的 Azure DevOps 頁面按 **Re-run query** 確認。
+
+---
+
+## 30. 2026-11-01 Phase 1／Phase 2 主分頁（v1.11.0，本機待確認）
+
+### 30.1 分流規則
+
+- Dashboard 上方新增 **Phase 1**、**Phase 2** 兩個第一層分頁；每個按鈕顯示當次 Query 實際 Case 數。
+- Test Case Tags 拆成 token 後，以忽略大小寫、空白、`-`、`_` 的方式比對 `Phase2`：命中者只進 Phase 2，其餘 Query Test Cases 進 Phase 1。
+- 原始 Query racks 保持完整，只在畫面與報表生成時過濾階層；因此兩個 Epic 下即使 Rack／Feature 名稱相同，也以各自 Case ID、tag、configuration 與目前狀態呈現，不會合併成同一 Case。
+- Phase 選擇儲存在 `localStorage.dvdashPhase`。切換 Query 或重新查詢仍保留目前 Phase；非法或舊值退回 Phase 1。
+
+### 30.2 各 Phase 獨立統計
+
+- Overview、Rack 1～5、Insights、Test Features、State 圖表、Closed／Blocked rate、Bug inventory、Case Priority、Sample Size、Number of Cycles、Test Duration 都改用目前 Phase 的 filtered hierarchy。
+- Test Runs／Results 的 lookback 由 28 天延長為 120 天以涵蓋 12 週測試期間；第 31 節起只對兩個 Phase 的核准 41-title Cases 查詢與對應。每個 Case 優先依 ID 對應最新 Result；Insights 的 matched／Passed／Failed／No Result 與 rate 只用目前 Phase Case 重新計算。
+- Snapshot 仍保存完整 Query 的兩個 Phase以供稽核，但第 31 節起 Added／Removed／State Changed／Updated This Week 只比較 41-title exact-match Cases；Insights 再依目前 Phase 顯示差異。舊 snapshot 沒有 phase 時視為 Phase 1。
+- Weekly CSV／Excel 與 Rack 1 Test Features Excel 只輸出目前 Phase，檔名加入 `Phase-1`／`Phase-2`；Offline Dashboard snapshot 仍包含兩個 Phase。
+
+### 30.3 最新資料與驗證界線
+
+- Live Query 每次開啟、F5、**Re-run query** 或 5 分鐘 auto refresh 都重新讀取 Work Item `System.State`／`System.ChangedDate`，再載入 Test Runs／Results 並更新最新 Outcome；本機程式沒有寫回 Azure DevOps。
+- 使用者提供的 41 項清單後續確定為 Phase 1 與 Phase 2 的共同正式統計範圍；詳細白名單與驗證改由第 31 節接續。
+- 第 30 節原本使用 Phase 1 58／Rack 的 fixture 是分流功能的開發中驗證，不再代表最新統計範圍；第 31 節已把兩個 Phase 都限制為相同的 41-title scope。
+- Browser QA 驗證 Phase 1 不含 Phase 2 tag／ID、Phase 2 全部包含 Phase 2 tag 且使用不同 ID，兩邊都有目前 State 與 Passed／Failed Outcome；Phase 2 Test Features 顯示 Phase 2 configuration，Excel rows 與 Rack 1 相同。
+- 1440 × 900 與 390 × 844 檢查無頁面水平溢出，Console／page errors 為 0。正式 Azure DevOps Case 數與實際 State／Outcome 尚未在本回合的已登入瀏覽器中驗證，必須由使用者用本機 v1.11.0 執行 **Re-run query** 後確認。
+- Extension v1.2.0 的 TypeScript、esbuild 與 VSIX package 均通過；此處原始 55,421 bytes 紀錄已由第 31 節的最新重新封裝取代。
+- 依使用者要求，本版目前只保留在本機 `local/phase-tabs`，尚未 commit、push、建立 PR 或更新 GitHub `main`。
+
+## 31. 2026-11-01 Phase 1／Phase 2 共用 41-title 統計範圍（v1.11.0，本機待確認）
+
+### 31.1 白名單與資料入口
+
+- `D.IN_SCOPE_CASE_TITLES` 固定保存使用者核准的 41 個完整標題。只有 character-for-character exact match 才納入統計；不以大小寫、標點或空白正規化後的相似結果冒充一致。
+- `D.filterNodeForPhase()` 同時要求 Phase tag 規則與 41-title scope。Feature／System Requirement 只有在包含至少一個核准 Case 時才留在目前 Phase hierarchy。
+- Bug Child／Parent／History 查詢只針對核准 Case；Test Runs／Results 只對兩個 Phase 的核准 Case 做 ID／Title mapping；snapshot comparison 也忽略 scope 外 Case。
+- Overview、Rack、Insights、Test Features、State、Closed／Blocked、Priority、Sample Size、Number of Cycles、Duration、Bug inventory、Weekly CSV／Excel 與 Rack 1 Excel 全部從同一份 filtered hierarchy 產生。
+
+### 31.2 排除稽核
+
+- Overview 與每個 Rack 新增 `OUT OF SCOPE` 卡片；Scope filter audit 可展開逐筆查看 Rack、Case ID、Reason、目前 Title、應使用的標準 Title、State。正規化後能對應到某個標準標題但文字不完全相同時標為 `TITLE MISMATCH`，完全無法對應則標為 `NOT APPROVED`。
+- 被列在 audit 的 Case 仍保留在原始 Query snapshot，方便日後調整 scope，但不影響任何統計、Bug／Outcome、差異比較或匯出。
+- 狀態提示同時回報「included approved Cases」與「additional Cases excluded」，避免把 Query 多餘項目誤認成正式測試量。
+
+### 31.3 本機驗證
+
+- 正常 fixture：Phase 1 與 Phase 2 各 5 Racks／205 approved Cases，每 Rack 41；兩個 Phase 各另放 5 個大小寫不同的 title mismatch 及 10 個 not-approved Cases（每 Rack 共 3），audit 顯示 15，但週報為 205 rows、Rack 1 Test Features Excel 為 41 rows，Rack tree 不含這些排除項目。
+- 缺項 fixture：兩個 Phase 都只提供每 Rack 40 個核准標題，畫面與匯出正確為 200 total／40 per Rack，沒有用白名單補造不存在的第 41 項；mismatch 與額外 Case 仍只出現在 audit。
+- 1440 × 900 與 390 × 844 Playwright QA 均無 Console／page error；手機 viewport 沒有 body 水平溢出。正式 Azure DevOps Query 的目前 included／excluded 數與實際 State／Outcome 尚未在已登入頁面驗證，需由使用者匯入本機 v1.11.0 後按 **Re-run query** 確認。
+- Extension v1.2.0 已重新通過 TypeScript、esbuild 與 VSIX package；最新本機 VSIX 為 58,012 bytes，內含 userscript v1.11.0 的 41-title exact-match 規則與 Scope audit。
+- 依使用者要求，本次修正仍只留在本機 `local/phase-tabs`，不 commit、不 push、不建立 PR。
+
+## 32. 2026-11-01 Test Case Execution Timeline（v1.12.0，本機待確認）
+
+### 32.1 欄位來源與資料界線
+
+- `D.FIELD_SPECS` 新增 `actualStartDate`、`actualCompletionDate`、`estimateStartDate`、`estimateCompletionDate`。Live Query 先呼叫 Azure DevOps `/_apis/wit/fields`，依 `Actual Start Date`、`Actual Completion Date`、`Estimate/Estimated Start Date`、`Estimate/Estimated Completion Date` 等顯示名稱解析實際 reference name。
+- 四個欄位都直接從每個核准 Test Case 的 Work Item fields 讀取；不以 `System.ChangedDate`、Test Result started/completed date 或推算時間替代。找不到欄位時沿用 partial-data warning，核心 Query 與其他分頁仍可使用。
+- Offline snapshot 會保留 `execution` 四欄；舊 snapshot 沒有這些欄位時顯示 `NO EXECUTION DATES`，不冒充零天或已排程。
+
+### 32.2 時間軸畫面
+
+- 每個 Phase 新增左側 **Execution Timeline** 分頁，預設顯示目前 Phase 的全部 Rack／41-title scope Cases；可切換單一 Rack、Actual + Estimate／Actual only／Estimate only，並依 Case ID、Title、State 搜尋。
+- Case 排序依序使用 Actual Start、Estimated Start、可用 Completion Date；Estimated 為藍色外框，Actual 為綠色實線。只有單一 Start／Completion 時顯示里程碑點。
+- Completion 早於 Start 不會被自動交換；時間軸以紅色虛線標示並計入 `INVALID DATE RANGES`。沒有任何日期、Actual／Estimate 配對不完整及反向日期都會列在可展開的 Execution date review 表格。
+- 每列保留 Rack、Case hyperlink、完整 Title tooltip，以及四個 Execution 日期的 tooltip／ARIA 文字；時間範圍過寬時只在時間軸容器內水平捲動，不造成整頁溢出。
+
+### 32.3 報表同步與驗證
+
+- Test Features 表格、Weekly CSV／Excel、Rack 1 Test Features Excel 都新增 Actual Start、Actual Completion、Estimate Start、Estimate Completion 四欄，與時間軸使用同一份 Case 資料。
+- 正常 fixture：Phase 1／2 各 205 approved Cases；每 Phase 200 有 Estimate、90 有 Actual、5 沒有日期、5 有反向日期，時間軸 200 rows。Rack 3 filter 為 41 approved／40 Estimate／18 Actual／1 missing／1 invalid；Actual-only 切換為 18 rows。
+- 缺項 fixture：每 Phase 200 approved Cases，時間軸 200 rows，不補造第 41 項。欄位 discovery fixture 成功把四個顯示名稱解析為 `Custom.*` reference names；Weekly 與 Rack 1 XLSX 都確認包含四個 Execution headers。
+- 1440 × 900 與 390 × 844 Playwright QA 通過；All Racks、Rack 3、Actual-only、Search、Phase 2、alternate-total 與內部水平捲動均有互動檢查，Console／page errors 為 0。Browser plugin 不在本工作階段，因此使用 bundled Playwright；正式 Azure DevOps 欄位 reference names、日期值與實際順序尚未在已登入 Live Query 驗證。
+- Extension v1.3.0 已通過 TypeScript、esbuild 與 VSIX package；本機 VSIX 為 61,815 bytes，內含 userscript v1.12.0、Execution Timeline、Hub、Widget、manifest 與 icon。
+- 依使用者前一項指示，本版仍只保留在本機 `local/phase-tabs`，不 commit、不 push、不建立 PR，待使用者確認後再同步 GitHub。
+
+## 33. 2026-11-01 Execution 日期時間展開明細（v1.12.1，工作分支已發布）
+
+### 33.1 操作與呈現
+
+- Execution Timeline 的每個 Case 列新增 **Show date & time** 按鈕；桌機點擊、手機點觸後，會直接在該 Case 下方展開明細，不需依賴滑鼠 hover tooltip。
+- 明細固定列出 Actual Start、Actual Completion、Estimate Start、Estimate Completion 四個欄位及完整日期時間；資料缺漏時仍顯示 `Not reported`，不以 Changed Date 或其他時間替代。
+- 展開後按鈕改為 **Hide date & time**，再次操作即可收合；使用原生 button 並同步 `aria-expanded`／`aria-hidden`，支援鍵盤 Enter 與 Space。
+- 日期明細採 Actual／Estimate 語意色左框；窄螢幕改為單欄排列並限制在 Timeline 容器內，不造成 body 水平溢出。
+
+### 33.2 本機驗證
+
+- 1440 × 900 Playwright fixture：初始收合、滑鼠點擊展開、四個欄位與 `2026-09-18 12:00` 等完整時間顯示、Enter 收合、Space 再展開均通過。
+- 390 × 844 touch fixture：以觸控 tap 展開成功，明細寬度 250px、`aria-expanded=true`，body 寬度與 viewport 同為 390px；桌機與手機 Console／page errors 均為 0。
+- Browser plugin 不在本工作階段，因此依維護流程使用 bundled Playwright 做互動與響應式驗證；這些結果為本機 fixture，正式 Azure DevOps 已登入 Live Query 的實際日期值仍待使用者按 **Re-run query** 確認。
+- Extension 已同步升為 v1.3.1；userscript 為 191,118 bytes（SHA-256 `40C35404DEEB53742A4CB25A4CAA3C2E7DDF0801A72D9A65201A8178D7162ECC`），重新封裝的 VSIX 為 62,624 bytes（SHA-256 `564C2D6E079EF86A995896D5C93C1B9C8300BE6E96D68D8DA204FF888F37E0F8`）。VSIX 已讀回確認內含 userscript v1.12.1、`timeline-detail-toggle` 與 manifest v1.3.1。
+- 依使用者後續發布指示，本版提交並推送至工作分支；在使用者明確同意前不直接合併 `main`。Tampermonkey 固定更新網址仍讀取 `main`，因此必須完成 PR merge 才會自動取得 v1.12.1。
