@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.0，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.1，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1296,3 +1296,9 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - **MSFT-Misc Portal**：C4143 Outline on SharePoint、Test plan query、Test Plan（planId 3998844／suiteId 3998931）、Bug query、Azure storage account Logs container、CRC-SDK-Repo。使用者提供的 SharePoint 連結是一次性的 OAuth 登入轉址（含 nonce／state），無法作為固定連結，因此預設為「未設定」，可在卡片上 Edit 填入實際文件網址（存於 `localStorage.dvdashPortalLinks:<queryId>`），或日後直接改 `D.QUERY_EXTRAS` 的 `outline.url`。
 - 小修：`D.pie` 新增中心單位文字參數（Bug 圓餅顯示 `bugs`）；`D.bar` Y 軸最大值至少 4，避免小數值時刻度重複（0,1,1,2,2）。
 - 只有讀取（WIQL／workitemsbatch）；未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point。
+
+## 59. 2026-11-02 Bug List State 改用獨立且色相分明的配色（v1.13.1）
+
+- 原本 Bug State 沿用 Case 的 `D.STATE_COLORS`，New（藍）、Committed（青）、Active（靛）、Resolved／Closed（青綠）色調相近難以分辨。
+- 新增 `D.BUG_STATE_COLORS`：New 藍 `#60a5fa`、Approved 紫 `#c084fc`、Committed 粉 `#f472b6`、Active 紅 `#f87171`、In Progress 橘 `#fb923c`、Resolved 黃 `#facc15`、Closed／Done 綠 `#34d399`、Removed 灰 `#94a3b8`；未列出的 State 由固定 fallback 色盤依名稱分配。
+- Bug State 圓餅、圖例、表格 State chip 與 State 篩選選單依工作流程順序（New → … → Closed）排列；Dashboard 的 Case State 配色不變。

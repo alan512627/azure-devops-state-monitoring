@@ -1,6 +1,6 @@
 {
   "name": "c4143-dvscale-azure-devops-extension",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "description": "Azure DevOps Hub with Rack Feature placement and normalized FPGA exclusion, title review and a C4143 Widget",
   "scripts": {

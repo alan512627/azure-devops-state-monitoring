@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.0
+// @version      1.13.1
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2175,6 +2175,18 @@
     });
     return map;
   };
+  // Bug states get their own palette with clearly separated hues (the Case palette reuses blue/cyan/teal).
+  D.BUG_STATE_COLORS = { 'New': '#60a5fa', 'Proposed': '#60a5fa', 'Approved': '#c084fc', 'Committed': '#f472b6', 'Active': '#f87171', 'In Progress': '#fb923c', 'Resolved': '#facc15', 'Closed': '#34d399', 'Done': '#34d399', 'Removed': '#94a3b8', 'Unknown': '#94a3b8' };
+  D.BUG_STATE_ORDER = ['New', 'Proposed', 'Approved', 'Committed', 'Active', 'In Progress', 'Resolved', 'Closed', 'Done', 'Removed', 'Unknown'];
+  D.BUG_STATE_FALLBACK = ['#2dd4bf', '#a3e635', '#e879f9', '#38bdf8', '#fda4af'];
+  D.bugStateColor = function (state) {
+    if (D.BUG_STATE_COLORS[state]) return D.BUG_STATE_COLORS[state];
+    var h = 0, text = String(state || ''); for (var i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
+    return D.BUG_STATE_FALLBACK[h % D.BUG_STATE_FALLBACK.length];
+  };
+  D.orderBugStates = function (keys) {
+    return D.BUG_STATE_ORDER.filter(function (s) { return keys.indexOf(s) >= 0; }).concat(keys.filter(function (s) { return D.BUG_STATE_ORDER.indexOf(s) < 0; }).sort());
+  };
   D.severityColor = function (s) {
     var v = String(s || '').toLowerCase();
     if (v.indexOf('1') === 0 || v.indexOf('critical') >= 0) return '#f87171';
@@ -2206,14 +2218,14 @@
     var stateCounts = {}, sevCounts = {};
     items.forEach(function (b) { var s = b.state || 'Unknown'; stateCounts[s] = (stateCounts[s] || 0) + 1; var v = b.severity || 'Not set'; sevCounts[v] = (sevCounts[v] || 0) + 1; });
     var grid = D.el('div', 'grid'), b1 = D.box('Bug state distribution'), b2 = D.box('Bug severity');
-    var c1 = D.el('div', 'chartwrap'); c1.appendChild(D.pie(stateCounts, null, null, 'bugs')); b1.appendChild(c1); b1.appendChild(D.legend(stateCounts));
+    var c1 = D.el('div', 'chartwrap'); c1.appendChild(D.pie(stateCounts, D.orderBugStates, D.bugStateColor, 'bugs')); b1.appendChild(c1); b1.appendChild(D.legend(stateCounts, D.orderBugStates, D.bugStateColor));
     var sevOrder = function (keys) { return keys.slice().sort(); };
     var c2 = D.el('div', 'chartwrap'); c2.appendChild(D.bar(sevCounts, sevOrder, D.severityColor)); b2.appendChild(c2); b2.appendChild(D.legend(sevCounts, sevOrder, D.severityColor));
     grid.appendChild(b1); grid.appendChild(b2); wrap.appendChild(grid);
 
     var box = D.box('Bugs (' + items.length + ')'), toolbar = D.el('div', 'bug-toolbar');
     var search = D.el('input'); search.type = 'search'; search.placeholder = 'Search ID, title, assignee, tag, Case …'; search.value = D.S.bugFilterText || '';
-    var stateSel = D.el('select'), states = Object.keys(stateCounts).sort();
+    var stateSel = D.el('select'), states = D.orderBugStates(Object.keys(stateCounts));
     [['__all', 'All states'], ['__open', 'Open only']].concat(states.map(function (s) { return [s, s]; })).forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; stateSel.appendChild(opt); });
     stateSel.value = D.S.bugFilterState || '__all';
     var count = D.el('span', 'small');
@@ -2246,7 +2258,7 @@
         shown++;
         var tr = D.el('tr'), idCell = D.el('td', 'num'), a = D.el('a', null, String(bug.id)); a.href = bug.url; a.target = '_blank'; a.rel = 'noopener'; idCell.appendChild(a); tr.appendChild(idCell);
         var titleCell = D.el('td', 'bug-title', bug.title); if (bug.tags) titleCell.title = 'Tags: ' + bug.tags; tr.appendChild(titleCell);
-        var stCell = D.el('td'); stCell.appendChild(D.chip(bug.state || 'Unknown')); tr.appendChild(stCell);
+        var stCell = D.el('td'), stChip = D.el('span', 'chip', bug.state || 'Unknown'); stChip.style.background = D.bugStateColor(bug.state || 'Unknown'); stCell.appendChild(stChip); tr.appendChild(stCell);
         var sevCell = D.el('td'); if (bug.severity) { var sv = D.el('span', 'chip', bug.severity); sv.style.background = D.severityColor(bug.severity); sevCell.appendChild(sv); } else sevCell.textContent = '-'; tr.appendChild(sevCell);
         tr.appendChild(D.el('td', 'num', bug.priority || '-')); tr.appendChild(D.el('td', null, bug.assignedTo && bug.assignedTo !== '-' ? bug.assignedTo : 'Unassigned'));
         tr.appendChild(D.el('td', null, D.fmt(bug.created))); tr.appendChild(D.el('td', null, D.fmt(bug.changed)));
