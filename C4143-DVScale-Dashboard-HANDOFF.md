@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.1，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.2，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1302,3 +1302,7 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 原本 Bug State 沿用 Case 的 `D.STATE_COLORS`，New（藍）、Committed（青）、Active（靛）、Resolved／Closed（青綠）色調相近難以分辨。
 - 新增 `D.BUG_STATE_COLORS`：New 藍 `#60a5fa`、Approved 紫 `#c084fc`、Committed 粉 `#f472b6`、Active 紅 `#f87171`、In Progress 橘 `#fb923c`、Resolved 黃 `#facc15`、Closed／Done 綠 `#34d399`、Removed 灰 `#94a3b8`；未列出的 State 由固定 fallback 色盤依名稱分配。
 - Bug State 圓餅、圖例、表格 State chip 與 State 篩選選單依工作流程順序（New → … → Closed）排列；Dashboard 的 Case State 配色不變。
+
+## 60. 2026-11-02 Bug Active 改為橘色（v1.13.2）
+
+- 依使用者要求 Active 不使用紅色：`D.BUG_STATE_COLORS` 的 Active 改為橘 `#fb923c`，原本橘色的 In Progress 改為青 `#22d3ee`；其餘 Bug State 配色不變。
