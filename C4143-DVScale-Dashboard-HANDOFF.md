@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.12.27，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.0，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1287,3 +1287,12 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 移除 `D.fetchRunResults`、120 天 Test Runs 視窗查詢、Insights 的 `Azure DevOps Test Runs / Test Plans` 表格與 weekly Excel 的 `Test Runs` 工作表；載入只剩 Test Plans 名稱 + Test Point by Case ID，速度明顯提升。Weekly 報表的 `Test Run ID` 欄改取 Test Point 的 `lastTestRun.id`。
 - Overview 卡片改名為 `PASS RATE`／`FAIL RATE`，只顯示百分比；分母由「Passed + Failed」改為選定時間範圍內全部 Case，與 Outcome 圓餅圖同一基準（例：1 Passed／10 Failed／205 Case → 0.5%／4.9%，舊版會顯示 `1 · 9.1%`／`10 · 90.9%`）。Insights 卡片與 Pass／Fail 長條同步調整。
 - 未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point；API 仍為唯讀。
+
+## 58. 2026-11-02 新增 Bug List 與 MSFT-Misc Portal 分頁（v1.13.0）
+
+- Phase 1／Phase 2 分頁列右側新增 `Bug List · N Bugs` 與 `MSFT-Misc Portal` 兩個頂層分頁（`D.S.view`：`dashboard`／`bugs`／`portal`，記在 `localStorage.dvdashView`）；切換時隱藏 Rack 側欄與面板，點回任一 Phase 即回到 Dashboard。
+- 設定集中在 `D.QUERY_EXTRAS`，以主 Query ID（`9254024e-…`）為 key；其他 Query（如 EchoFalls）沒有設定時兩個分頁自動隱藏。
+- **Bug List**：核心載入完成後於背景以 WIQL 執行 Bug query `6f1d299f-eaa4-4d06-9d7f-0b6161f04788`，`workitemsbatch` 取 Title／State／Reason／Assigned To／Created／Changed／Tags／Area／Severity／Priority（Severity／Priority 不存在時自動退回基本欄位），只保留 Work Item Type 為 Bug 的項目。畫面：五張統計卡、State 圓餅、Severity 長條、可搜尋／State 篩選（含 Open only）／欄位排序的表格；`Linked Cases` 由 Dashboard 已驗證的 Bug ↔ Case 關係（兩個 Phase）回填。Bug 清單也存入離線快照。
+- **MSFT-Misc Portal**：C4143 Outline on SharePoint、Test plan query、Test Plan（planId 3998844／suiteId 3998931）、Bug query、Azure storage account Logs container、CRC-SDK-Repo。使用者提供的 SharePoint 連結是一次性的 OAuth 登入轉址（含 nonce／state），無法作為固定連結，因此預設為「未設定」，可在卡片上 Edit 填入實際文件網址（存於 `localStorage.dvdashPortalLinks:<queryId>`），或日後直接改 `D.QUERY_EXTRAS` 的 `outline.url`。
+- 小修：`D.pie` 新增中心單位文字參數（Bug 圓餅顯示 `bugs`）；`D.bar` Y 軸最大值至少 4，避免小數值時刻度重複（0,1,1,2,2）。
+- 只有讀取（WIQL／workitemsbatch）；未修改 Azure DevOps organization、Query、Work Item、Test Plan 或 Test Point。

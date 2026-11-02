@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.12.27
-// @description  Uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
+// @version      1.13.0
+// @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
 // @updateURL    https://raw.githubusercontent.com/alan512627/azure-devops-state-monitoring/main/C4143-DVScale-Dashboard.user.js
@@ -137,7 +137,7 @@
     '[System][Functionality] Dynamically Reconfig Glacier Peak / Castle Peak FPGA image (full link teardown)',
     '[System][Functionality] Dynamically Reconfig Castle Peak FPGA image (full link teardown)'
   ];
-  D.S = {racks:[],loadedAt:null,range:"all",chartType:"pie",panels:[],active:0,phase:"phase1",mode:"live",queries:[],activeQueryKey:'',testResults:{status:"idle",runs:[]},snapshotComparison:null};
+  D.S = {racks:[],loadedAt:null,range:"all",chartType:"pie",panels:[],active:0,phase:"phase1",mode:"live",queries:[],activeQueryKey:'',testResults:{status:"idle",runs:[]},snapshotComparison:null,view:"dashboard",bugList:{status:"idle",items:[]}};
   D.el = function (t, c, x) { var e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
   D.queryKey = function (query) { return [query.orgName, query.project, query.queryId].join('|').toLowerCase(); };
   D.activeQuery = function () {
@@ -1178,7 +1178,7 @@
     return 'M' + x0 + ' ' + y0 + ' A' + R + ' ' + R + ' 0 ' + lg + ' 1 ' + x1 + ' ' + y1 +
       ' L' + x2 + ' ' + y2 + ' A' + r + ' ' + r + ' 0 ' + lg + ' 0 ' + x3 + ' ' + y3 + ' Z';
   };
-  D.pie = function (counts, orderFn, colorFn) {
+  D.pie = function (counts, orderFn, colorFn, unitLabel) {
     orderFn = orderFn || D.orderStates; colorFn = colorFn || D.colorFor;
     var size = 300, keys = orderFn(Object.keys(counts)).filter(function (k) { return +counts[k] > 0; }), total = D.sum(counts);
     var s = D.svg('svg', { viewBox: '0 0 ' + size + ' ' + size, width: '100%', height: '100%', preserveAspectRatio: 'xMidYMid meet' });
@@ -1208,7 +1208,7 @@
       });
     }
     var n1 = D.svg('text', { x: cx, y: cy - 2, fill: '#e2e8f0', 'text-anchor': 'middle', 'font-size': '26', 'font-weight': '700' }); n1.textContent = total;
-    var n2 = D.svg('text', { x: cx, y: cy + 16, fill: '#8fa3c0', 'text-anchor': 'middle', 'font-size': '11' }); n2.textContent = 'test cases';
+    var n2 = D.svg('text', { x: cx, y: cy + 16, fill: '#8fa3c0', 'text-anchor': 'middle', 'font-size': '11' }); n2.textContent = unitLabel || 'test cases';
     s.appendChild(n1); s.appendChild(n2);
     return s;
   };
@@ -1218,7 +1218,7 @@
     var keys = orderFn(Object.keys(counts)), total = D.sum(counts);
     var s = D.svg('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', height: '100%', preserveAspectRatio: 'xMidYMid meet' });
     if (!total) { var t0 = D.svg('text', { x: W / 2, y: H / 2, fill: '#8fa3c0', 'text-anchor': 'middle', 'font-size': '14' }); t0.textContent = 'No data in range'; s.appendChild(t0); return s; }
-    var max = Math.max.apply(null, keys.map(function (k) { return counts[k]; }));
+    var max = Math.max(4, Math.max.apply(null, keys.map(function (k) { return counts[k]; })));
     var pw = W - L - Rp, ph = H - T - B;
     for (var g = 0; g <= 4; g++) {
       var y = T + ph - ph * g / 4;
@@ -1939,16 +1939,23 @@
     var counts = D.phaseCounts();
     ['phase1', 'phase2'].forEach(function (phase) {
       var button = document.querySelector('.phase-tab[data-phase="' + phase + '"]'); if (!button) return;
-      var active = D.S.phase === phase;
+      var active = (!D.S.view || D.S.view === 'dashboard') && D.S.phase === phase;
       button.textContent = D.phaseLabel(phase) + ' · ' + counts[phase] + ' Cases';
+      button.classList.toggle('active', active); button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    var extras = typeof D.queryExtras === 'function' ? D.queryExtras() : null;
+    Array.prototype.forEach.call(document.querySelectorAll('.phase-tab[data-view]'), function (button) {
+      var view = button.getAttribute('data-view'), available = !!(extras && (view === 'bugs' ? extras.bugQuery : extras.portal)), active = D.S.view === view;
+      button.style.display = available ? '' : 'none';
+      if (view === 'bugs') { var list = D.S.bugList || {}; button.textContent = 'Bug List' + (list.status === 'ok' ? ' · ' + list.items.length + ' Bugs' : list.status === 'loading' ? ' · …' : ''); }
       button.classList.toggle('active', active); button.setAttribute('aria-selected', active ? 'true' : 'false');
     });
   };
   D.switchPhase = function (phase) {
     if (phase !== 'phase1' && phase !== 'phase2') return;
-    D.S.phase = phase; D.S.active = 0;
-    try { localStorage.setItem('dvdashPhase', phase); } catch (error) { }
-    D.updateIdentity(); D.refreshPhaseTabs(); D.buildPanels(); D.refresh();
+    D.S.phase = phase; D.S.active = 0; D.S.view = 'dashboard';
+    try { localStorage.setItem('dvdashPhase', phase); localStorage.setItem('dvdashView', 'dashboard'); } catch (error) { }
+    D.updateIdentity(); D.refreshPhaseTabs(); D.renderExtraView(); D.buildPanels(); D.refresh();
   };
   D.updateIdentity = function () {
     var query = D.activeQuery(), phaseRacks = D.phaseRacks(), rackText = phaseRacks.length ? (' — ' + D.phaseLabel(D.S.phase) + ' — ' + phaseRacks.length + ' Racks Test Status Dashboard') : (' — ' + D.phaseLabel(D.S.phase) + ' Test Status Dashboard');
@@ -1960,8 +1967,9 @@
   };
   D.switchQuery = function (key) {
     var query = (D.S.queries || []).filter(function (item) { return D.queryKey(item) === key; })[0]; if (!query) return;
-    D.applyQuery(query, true); D.S.active = 0; D.S.racks = []; D.S.loadedAt = null; D.S.snapshotComparison = null;
-    D.updateIdentity(); D.buildPanels(); D.load();
+    D.applyQuery(query, true); D.S.active = 0; D.S.racks = []; D.S.loadedAt = null; D.S.snapshotComparison = null; D.S.bugList = { status: 'idle', items: [] };
+    if (D.S.view !== 'dashboard' && !D.queryExtras()) D.S.view = 'dashboard';
+    D.updateIdentity(); D.renderExtraView(); D.buildPanels(); D.load();
   };
   D.openQueryManager = function () {
     var old = document.querySelector('.query-modal-backdrop'); if (old) old.remove();
@@ -2066,6 +2074,10 @@
       var phaseButton = D.el('button', 'phase-tab', D.phaseLabel(phase)); phaseButton.setAttribute('role', 'tab'); phaseButton.setAttribute('data-phase', phase);
       phaseButton.addEventListener('click', function () { D.switchPhase(phase); }); phaseTabs.appendChild(phaseButton);
     });
+    [['bugs', 'Bug List'], ['portal', 'MSFT-Misc Portal']].forEach(function (view) {
+      var viewButton = D.el('button', 'phase-tab extra-tab', view[1]); viewButton.setAttribute('role', 'tab'); viewButton.setAttribute('data-view', view[0]);
+      viewButton.addEventListener('click', function () { D.switchView(view[0]); }); phaseTabs.appendChild(viewButton);
+    });
     document.body.appendChild(phaseTabs); D.refreshPhaseTabs();
 
     var banner = D.el('div', 'banner info', 'Preparing to load…'); banner.id = 'banner'; document.body.appendChild(banner);
@@ -2073,6 +2085,7 @@
     var tabs = D.el('div', 'tabs'); tabs.id = 'tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-orientation', 'vertical'); main.appendChild(tabs);
     var panels = D.el('div'); panels.id = 'panels'; main.appendChild(panels);
     document.body.appendChild(main);
+    var extraView = D.el('div'); extraView.id = 'extraView'; extraView.style.display = 'none'; document.body.appendChild(extraView);
 
     querySelect.addEventListener('change', function (event) { D.switchQuery(event.target.value); });
     queryManage.addEventListener('click', D.openQueryManager);
@@ -2093,6 +2106,232 @@
     eb.addEventListener('click', function () { D.exportHtml(); });
     if (!D._timer) D._timer = setInterval(function () { var c = document.getElementById('autoRef'); if (c && c.checked && D.S.mode !== 'snapshot') D.load(); }, 300000);
   };
+  // ---------------------------------------------------------------------------
+  // Extra top-level views next to the Phase tabs: Bug List (read-only Bug query)
+  // and MSFT-Misc Portal (program links). Keyed by the main Test Case query ID.
+  // ---------------------------------------------------------------------------
+  D.QUERY_EXTRAS = {
+    '9254024e-6a97-44ed-953b-1aa07d38fb48': {
+      bugQuery: { name: 'C4143 Scale Test Bugs', org: 'https://azurecsi.visualstudio.com', project: 'Dev', queryId: '6f1d299f-eaa4-4d06-9d7f-0b6161f04788' },
+      portal: [
+        { key: 'outline', title: 'C4143 Outline on SharePoint', note: 'SharePoint outline document', url: '' },
+        { key: 'testQuery', title: 'Test plan query (Phase1/Phase2)', note: 'Azure DevOps Query', url: 'https://azurecsi.visualstudio.com/Dev/_queries/query/9254024e-6a97-44ed-953b-1aa07d38fb48/' },
+        { key: 'testPlan', title: 'Test Plan (Phase1/Phase2)', note: 'Azure Test Plans · Plan 3998844 · Suite 3998931', url: 'https://azurecsi.visualstudio.com/Dev/_testPlans/define?planId=3998844&suiteId=3998931' },
+        { key: 'bugQuery', title: 'Bug query', note: 'Azure DevOps Query used by the Bug List tab', url: 'https://azurecsi.visualstudio.com/Dev/_queries/query/6f1d299f-eaa4-4d06-9d7f-0b6161f04788/' },
+        { key: 'logs', title: 'Azure storage account (Logs container)', note: 'npiautoingrasys / logs', url: 'https://ms.portal.azure.com/#view/Microsoft_Azure_Storage/ContainerMenuBlade/~/overview/storageAccountId/%2Fsubscriptions%2F94f4f5c5-3526-4f0d-83e5-2e7946a41b75%2FresourceGroups%2Fnpiautomation%2Fproviders%2FMicrosoft.Storage%2FstorageAccounts%2Fnpiautoingrasys/path/logs/etag/%220x8DF17ED8EFEF525%22/defaultId//publicAccessVal/None' },
+        { key: 'crcSdk', title: 'CRC-SDK-Repo', note: 'GitHub · microsoft/CRC-SDK-Ingrasys', url: 'https://github.com/microsoft/CRC-SDK-Ingrasys' }
+      ]
+    }
+  };
+  D.queryExtras = function () { var query = D.activeQuery(); return D.QUERY_EXTRAS[String(query && query.queryId || '').toLowerCase()] || null; };
+  D.BUG_FIELDS = ['System.Id', 'System.Title', 'System.State', 'System.Reason', 'System.WorkItemType', 'System.AssignedTo', 'System.CreatedBy', 'System.CreatedDate', 'System.ChangedDate', 'System.Tags', 'System.AreaPath', 'Microsoft.VSTS.Common.Severity', 'Microsoft.VSTS.Common.Priority'];
+  D.BUG_CLOSED_STATES = ['closed', 'done', 'removed', 'resolved', 'cut'];
+  D.bugIsOpen = function (bug) { return D.BUG_CLOSED_STATES.indexOf(String(bug.state || '').trim().toLowerCase()) < 0; };
+  D.loadBugList = async function () {
+    var extras = D.queryExtras();
+    if (!extras || !extras.bugQuery) { D.S.bugList = { status: 'none', items: [] }; return; }
+    var cfg = extras.bugQuery, base = D.S.mode === 'proxy' ? D.getProxy() : cfg.org.replace(/\/+$/, '');
+    var apiBase = base + '/' + encodeURIComponent(cfg.project) + '/_apis/wit/';
+    D.S.bugList = Object.assign({}, D.S.bugList || {}, { status: 'loading', query: cfg });
+    try {
+      var wiql = await D.apiFetch(apiBase + 'wiql/' + cfg.queryId + '?api-version=6.0&$top=5000'), ids = [], seen = {};
+      (wiql.workItems || []).forEach(function (w) { if (w && !seen[w.id]) { seen[w.id] = 1; ids.push(w.id); } });
+      (wiql.workItemRelations || []).forEach(function (r) { var t = r && r.target; if (t && !seen[t.id]) { seen[t.id] = 1; ids.push(t.id); } });
+      var batches = []; for (var i = 0; i < ids.length; i += 200) batches.push(ids.slice(i, i + 200));
+      var fetchBatch = function (batch, fields) {
+        return D.apiFetch(apiBase + 'workitemsbatch?api-version=6.0', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: batch, fields: fields, errorPolicy: 'Omit' }) });
+      };
+      var pages;
+      try { pages = await D.mapLimit(batches, 3, function (batch) { return fetchBatch(batch, D.BUG_FIELDS); }); }
+      catch (fieldError) { // Severity / Priority may not exist in every process template.
+        pages = await D.mapLimit(batches, 3, function (batch) { return fetchBatch(batch, D.BUG_FIELDS.filter(function (f) { return f.indexOf('Microsoft.VSTS') !== 0; })); });
+      }
+      var byId = {};
+      pages.forEach(function (page) { (page.value || []).forEach(function (w) { if (w && w.id != null) byId[w.id] = w; }); });
+      var items = ids.map(function (id) { return byId[id]; }).filter(Boolean).map(function (w) {
+        var f = w.fields || {};
+        return {
+          id: w.id, title: f['System.Title'] || '', state: f['System.State'] || '', reason: f['System.Reason'] || '', type: f['System.WorkItemType'] || '',
+          assignedTo: D.displayFieldValue(f['System.AssignedTo']), createdBy: D.displayFieldValue(f['System.CreatedBy']),
+          created: f['System.CreatedDate'] || null, changed: f['System.ChangedDate'] || null, tags: f['System.Tags'] || '', area: f['System.AreaPath'] || '',
+          severity: f['Microsoft.VSTS.Common.Severity'] || '', priority: f['Microsoft.VSTS.Common.Priority'] != null ? String(f['Microsoft.VSTS.Common.Priority']) : '',
+          url: cfg.org.replace(/\/+$/, '') + '/' + encodeURIComponent(cfg.project) + '/_workitems/edit/' + w.id
+        };
+      }).filter(function (item) { return !item.type || /bug/i.test(item.type); });
+      D.S.bugList = { status: 'ok', items: items, query: cfg, loadedAt: new Date().toISOString() };
+    } catch (error) {
+      D.S.bugList = { status: 'error', items: (D.S.bugList && D.S.bugList.items) || [], query: cfg, error: String((error && error.message) || error) };
+    }
+  };
+  D.bugCaseLinks = function () {
+    var map = {}, racks = D.phaseRacks('phase1').concat(D.phaseRacks('phase2'));
+    D.bugInventory(racks).forEach(function (entry) {
+      var key = String(entry.bug.id), list = map[key] = map[key] || [], seen = {};
+      list.forEach(function (link) { seen[link.caseId + '|' + link.rack] = 1; });
+      (entry.links || []).forEach(function (link) {
+        var k = link.testCase.id + '|' + link.rack.label; if (seen[k]) return; seen[k] = 1;
+        list.push({ caseId: link.testCase.id, rack: link.rack.label, title: link.testCase.title });
+      });
+    });
+    return map;
+  };
+  D.severityColor = function (s) {
+    var v = String(s || '').toLowerCase();
+    if (v.indexOf('1') === 0 || v.indexOf('critical') >= 0) return '#f87171';
+    if (v.indexOf('2') === 0 || v.indexOf('high') >= 0) return '#fb923c';
+    if (v.indexOf('3') === 0 || v.indexOf('medium') >= 0) return '#fbbf24';
+    if (v.indexOf('4') === 0 || v.indexOf('low') >= 0) return '#34d399';
+    return '#94a3b8';
+  };
+  D.bugListView = function () {
+    var wrap = D.el('div', 'extra-view'), list = D.S.bugList || { status: 'idle', items: [] }, extras = D.queryExtras();
+    var head = D.el('div', 'extra-head'), h = D.el('h2', null, 'Bug List');
+    head.appendChild(h);
+    if (extras && extras.bugQuery) {
+      var src = D.el('a', 'small', 'Source query: ' + extras.bugQuery.name + ' ↗'); src.href = extras.bugQuery.org + '/' + encodeURIComponent(extras.bugQuery.project) + '/_queries/query/' + extras.bugQuery.queryId + '/'; src.target = '_blank'; src.rel = 'noopener'; head.appendChild(src);
+    }
+    var reload = D.el('button', 'primary', 'Reload bugs'); reload.addEventListener('click', function () { D.S.bugList = { status: 'loading', items: [] }; D.renderExtraView(); D.loadBugList().then(D.renderExtraView); }); head.appendChild(reload);
+    wrap.appendChild(head);
+    if (!extras || !extras.bugQuery) { wrap.appendChild(D.el('div', 'empty', 'No Bug query is configured for this Query.')); return wrap; }
+    if (list.status === 'loading' && !list.items.length) { wrap.appendChild(D.el('div', 'empty', 'Loading Bugs from the query …')); return wrap; }
+    if (list.status === 'error') wrap.appendChild(D.el('div', 'empty', 'Bug query failed: ' + list.error));
+    if (list.status === 'idle') { wrap.appendChild(D.el('div', 'empty', 'Bugs load after the main query finishes.')); return wrap; }
+    var items = list.items || [], links = D.bugCaseLinks();
+    var open = items.filter(D.bugIsOpen).length, linked = items.filter(function (b) { return (links[String(b.id)] || []).length; }).length;
+    var resolved = items.filter(function (b) { return /^resolved$/i.test(b.state); }).length, closed = items.filter(function (b) { return /^(closed|done)$/i.test(b.state); }).length;
+    var cards = D.el('div', 'cards');
+    [D.card('TOTAL BUGS', items.length, '#fb923c'), D.card('OPEN', open, '#f87171'), D.card('RESOLVED', resolved, '#fbbf24'), D.card('CLOSED', closed, '#34d399'), D.card('LINKED TO CASES', linked + ' / ' + items.length, '#60a5fa')]
+      .forEach(function (c) { cards.appendChild(c); });
+    wrap.appendChild(cards);
+    var stateCounts = {}, sevCounts = {};
+    items.forEach(function (b) { var s = b.state || 'Unknown'; stateCounts[s] = (stateCounts[s] || 0) + 1; var v = b.severity || 'Not set'; sevCounts[v] = (sevCounts[v] || 0) + 1; });
+    var grid = D.el('div', 'grid'), b1 = D.box('Bug state distribution'), b2 = D.box('Bug severity');
+    var c1 = D.el('div', 'chartwrap'); c1.appendChild(D.pie(stateCounts, null, null, 'bugs')); b1.appendChild(c1); b1.appendChild(D.legend(stateCounts));
+    var sevOrder = function (keys) { return keys.slice().sort(); };
+    var c2 = D.el('div', 'chartwrap'); c2.appendChild(D.bar(sevCounts, sevOrder, D.severityColor)); b2.appendChild(c2); b2.appendChild(D.legend(sevCounts, sevOrder, D.severityColor));
+    grid.appendChild(b1); grid.appendChild(b2); wrap.appendChild(grid);
+
+    var box = D.box('Bugs (' + items.length + ')'), toolbar = D.el('div', 'bug-toolbar');
+    var search = D.el('input'); search.type = 'search'; search.placeholder = 'Search ID, title, assignee, tag, Case …'; search.value = D.S.bugFilterText || '';
+    var stateSel = D.el('select'), states = Object.keys(stateCounts).sort();
+    [['__all', 'All states'], ['__open', 'Open only']].concat(states.map(function (s) { return [s, s]; })).forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; stateSel.appendChild(opt); });
+    stateSel.value = D.S.bugFilterState || '__all';
+    var count = D.el('span', 'small');
+    toolbar.appendChild(search); toolbar.appendChild(stateSel); toolbar.appendChild(count); box.appendChild(toolbar);
+    var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'bug-list-table'), thead = D.el('thead'), hr = D.el('tr');
+    var cols = [['id', 'ID'], ['title', 'Title'], ['state', 'State'], ['severity', 'Severity'], ['priority', 'Priority'], ['assignedTo', 'Assigned To'], ['created', 'Created'], ['changed', 'Changed'], ['cases', 'Linked Cases (Rack · Case)']];
+    var sort = D.S.bugSort || { key: 'id', dir: -1 };
+    cols.forEach(function (col) {
+      var th = D.el('th', 'sortable', col[1] + (sort.key === col[0] ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''));
+      if (col[0] !== 'cases') th.addEventListener('click', function () { D.S.bugSort = { key: col[0], dir: sort.key === col[0] ? -sort.dir : 1 }; D.renderExtraView(); });
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr); table.appendChild(thead);
+    var tbody = D.el('tbody'); table.appendChild(tbody); scroll.appendChild(table); box.appendChild(scroll); wrap.appendChild(box);
+    var sorted = items.slice().sort(function (a, b) {
+      var x = a[sort.key], y = b[sort.key];
+      if (sort.key === 'id') return (x - y) * sort.dir;
+      return String(x || '').localeCompare(String(y || ''), undefined, { numeric: true }) * sort.dir;
+    });
+    function draw() {
+      var q = search.value.trim().toLowerCase(), st = stateSel.value, shown = 0;
+      D.S.bugFilterText = search.value; D.S.bugFilterState = st;
+      tbody.innerHTML = '';
+      sorted.forEach(function (bug) {
+        if (st === '__open' && !D.bugIsOpen(bug)) return;
+        if (st !== '__all' && st !== '__open' && bug.state !== st) return;
+        var caseLinks = links[String(bug.id)] || [];
+        var hay = [bug.id, bug.title, bug.state, bug.severity, bug.priority, bug.assignedTo, bug.tags, bug.area].concat(caseLinks.map(function (l) { return l.caseId + ' ' + l.rack + ' ' + l.title; })).join(' ').toLowerCase();
+        if (q && hay.indexOf(q) < 0) return;
+        shown++;
+        var tr = D.el('tr'), idCell = D.el('td', 'num'), a = D.el('a', null, String(bug.id)); a.href = bug.url; a.target = '_blank'; a.rel = 'noopener'; idCell.appendChild(a); tr.appendChild(idCell);
+        var titleCell = D.el('td', 'bug-title', bug.title); if (bug.tags) titleCell.title = 'Tags: ' + bug.tags; tr.appendChild(titleCell);
+        var stCell = D.el('td'); stCell.appendChild(D.chip(bug.state || 'Unknown')); tr.appendChild(stCell);
+        var sevCell = D.el('td'); if (bug.severity) { var sv = D.el('span', 'chip', bug.severity); sv.style.background = D.severityColor(bug.severity); sevCell.appendChild(sv); } else sevCell.textContent = '-'; tr.appendChild(sevCell);
+        tr.appendChild(D.el('td', 'num', bug.priority || '-')); tr.appendChild(D.el('td', null, bug.assignedTo && bug.assignedTo !== '-' ? bug.assignedTo : 'Unassigned'));
+        tr.appendChild(D.el('td', null, D.fmt(bug.created))); tr.appendChild(D.el('td', null, D.fmt(bug.changed)));
+        var linkCell = D.el('td', 'bug-cases');
+        if (!caseLinks.length) linkCell.textContent = '-';
+        caseLinks.forEach(function (l) { var ca = D.el('a', null, l.rack + ' · #' + l.caseId); ca.href = D.wiUrl(l.caseId); ca.target = '_blank'; ca.rel = 'noopener'; ca.title = l.title; linkCell.appendChild(ca); });
+        tr.appendChild(linkCell); tbody.appendChild(tr);
+      });
+      if (!shown) { var er = D.el('tr'), ec = D.el('td', 'empty', 'No Bugs match the filter.'); ec.colSpan = cols.length; er.appendChild(ec); tbody.appendChild(er); }
+      count.textContent = shown + ' of ' + items.length + ' Bugs' + (list.loadedAt ? ' · loaded ' + D.fmt(list.loadedAt) : '');
+    }
+    search.addEventListener('input', draw); stateSel.addEventListener('change', draw); draw();
+    return wrap;
+  };
+  D.portalLinks = function () {
+    var extras = D.queryExtras(); if (!extras || !extras.portal) return [];
+    var store = {}; try { store = JSON.parse(localStorage.getItem('dvdashPortalLinks:' + D.activeQuery().queryId) || '{}') || {}; } catch (error) { store = {}; }
+    return extras.portal.map(function (item) { return Object.assign({}, item, { url: store[item.key] != null ? store[item.key] : item.url, custom: store[item.key] != null }); });
+  };
+  D.savePortalLink = function (key, url) {
+    var storeKey = 'dvdashPortalLinks:' + D.activeQuery().queryId, store = {};
+    try { store = JSON.parse(localStorage.getItem(storeKey) || '{}') || {}; } catch (error) { store = {}; }
+    if (url == null) delete store[key]; else store[key] = url;
+    try { localStorage.setItem(storeKey, JSON.stringify(store)); } catch (error) { }
+  };
+  D.portalView = function () {
+    var wrap = D.el('div', 'extra-view'), head = D.el('div', 'extra-head');
+    head.appendChild(D.el('h2', null, 'MSFT-Misc Portal')); head.appendChild(D.el('span', 'small', 'Program links. Use Edit to change a link; edits are saved in this browser only.'));
+    wrap.appendChild(head);
+    var items = D.portalLinks();
+    if (!items.length) { wrap.appendChild(D.el('div', 'empty', 'No portal links are configured for this Query.')); return wrap; }
+    var grid = D.el('div', 'portal-grid');
+    items.forEach(function (item) {
+      var card = D.el('div', 'portal-card' + (item.url ? '' : ' unset'));
+      card.appendChild(D.el('div', 'portal-title', item.title));
+      card.appendChild(D.el('div', 'small', item.note || ''));
+      var host = ''; try { host = item.url ? new URL(item.url).hostname : ''; } catch (error) { host = ''; }
+      card.appendChild(D.el('div', 'portal-host', item.url ? host + (item.custom ? ' · edited' : '') : 'Link not set — click Edit to add it'));
+      var actions = D.el('div', 'portal-actions');
+      if (item.url) { var open = D.el('a', 'portal-open', 'Open ↗'); open.href = item.url; open.target = '_blank'; open.rel = 'noopener'; actions.appendChild(open); }
+      var edit = D.el('button', null, 'Edit'); actions.appendChild(edit);
+      if (item.custom) { var reset = D.el('button', null, 'Reset'); reset.addEventListener('click', function () { D.savePortalLink(item.key, null); D.renderExtraView(); }); actions.appendChild(reset); }
+      card.appendChild(actions);
+      var form = D.el('div', 'portal-edit'), input = D.el('input'), save = D.el('button', 'primary', 'Save'), cancel = D.el('button', null, 'Cancel');
+      input.type = 'url'; input.placeholder = 'https://…'; input.value = item.url || '';
+      form.appendChild(input); form.appendChild(save); form.appendChild(cancel); form.style.display = 'none'; card.appendChild(form);
+      edit.addEventListener('click', function () { form.style.display = 'flex'; input.focus(); input.select(); });
+      cancel.addEventListener('click', function () { form.style.display = 'none'; });
+      save.addEventListener('click', function () {
+        var v = input.value.trim();
+        if (v && !/^https?:\/\//i.test(v)) { input.setCustomValidity('Enter an http(s) URL'); input.reportValidity(); return; }
+        D.savePortalLink(item.key, v); D.renderExtraView();
+      });
+      input.addEventListener('input', function () { input.setCustomValidity(''); });
+      grid.appendChild(card);
+    });
+    wrap.appendChild(grid);
+    return wrap;
+  };
+  D.renderExtraView = function () {
+    var host = document.getElementById('extraView'), main = document.querySelector('.dashboard-main');
+    var view = D.S.view === 'bugs' || D.S.view === 'portal' ? D.S.view : 'dashboard';
+    if (main) main.style.display = view === 'dashboard' ? '' : 'none';
+    if (!host) return;
+    host.style.display = view === 'dashboard' ? 'none' : '';
+    if (view === 'dashboard') return;
+    var keepScroll = window.scrollY;
+    host.innerHTML = '';
+    host.appendChild(view === 'bugs' ? D.bugListView() : D.portalView());
+    window.scrollTo(0, keepScroll);
+  };
+  D.switchView = function (view) {
+    D.S.view = view;
+    try { localStorage.setItem('dvdashView', view); } catch (error) { }
+    D.refreshPhaseTabs(); D.renderExtraView();
+    if (view === 'dashboard') D.refresh();
+    if (view === 'bugs' && (!D.S.bugList || D.S.bugList.status === 'idle' || D.S.bugList.status === 'none')) D.loadBugList().then(D.renderExtraView);
+  };
+  D.CSS += "\n.phase-tab[data-view='bugs']{--phase-accent:#fb923c}.phase-tab[data-view='portal']{--phase-accent:#34d399}.phase-tab.extra-tab{flex:0 1 220px}.phase-tab.portal-sep{margin-left:auto}@media(max-width:620px){.phase-tab.portal-sep{margin-left:0}}"
+    + "\n.extra-view{padding:16px 20px 28px;min-width:0}.extra-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px}.extra-head h2{margin:0;font-size:20px;color:#e2e8f0}.extra-head a{color:#93c5fd}.extra-head button{margin-left:auto}"
+    + "\n.bug-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}.bug-toolbar input{flex:1 1 280px;min-width:200px;padding:7px 10px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.bug-toolbar select{min-width:160px}"
+    + "\n.bug-list-table{min-width:1180px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{display:inline-block;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
+    + "\n.portal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.portal-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:#111d33;border:1px solid #253858;border-left:4px solid #34d399}.portal-card.unset{border-left-color:#fbbf24}"
+    + "\n.portal-title{font-size:15px;font-weight:700;color:#e2e8f0}.portal-host{font-size:12px;color:#93c5fd;word-break:break-all}.portal-card.unset .portal-host{color:#fbbf24}.portal-actions{display:flex;gap:8px;margin-top:6px;align-items:center}.portal-actions button{width:auto}"
+    + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";
   D.buildPanels = function () {
     D.updateIdentity();
     var tabsBar = document.getElementById('tabs'), host = document.getElementById('panels');
@@ -2287,6 +2526,7 @@
     } else if (D.S.racks.length) {
       D.setStatus(src + ': no Test Cases were found for ' + D.phaseLabel(D.S.phase) + ' after exact Phase Tag validation.' + consistencyNote + bugNote + metricNote + testNote + timingNote, 'warn');
     }
+    if (D.S.view === 'bugs') D.renderExtraView();
   };
   D.load = async function () {
     var modeLabel = (D.MODES.filter(function (m) { return m[0] === D.S.mode; })[0] || ['', ''])[1];
@@ -2299,6 +2539,7 @@
       }
       D.S.racks = s.racks; D.S.loadedAt = s.savedAt || null; D.S.snapshotMode = true; D.S.bugLinkWarning = ''; D.S.metricFieldWarning = '';
       D.S.testResults = s.testResults || { status: 'unavailable', runs: [], error: 'This snapshot predates Test Point outcome storage.' };
+      D.S.bugList = s.bugList || { status: 'error', items: [], error: 'This snapshot predates Bug List storage.' };
       D.S.snapshotComparison = s.snapshotComparison || { status: 'first', previousAt: null, currentAt: D.S.loadedAt, added: [], removed: [], stateChanged: [], updatedThisWeek: [] };
       document.getElementById('updated').textContent = 'Snapshot: ' + D.fmt(D.S.loadedAt);
       if (D.S.active > D.phaseRacks().length + 3) D.S.active = 0;
@@ -2321,7 +2562,9 @@
       var cases = D.allScopedCases();
       var bugTask = D.finishDeferredBugValidation(res.deferredBugContext, D.S.racks).then(function () { D.refresh(); });
       var resultTask = D.loadSupplementalData(D.baseFor(), cases).then(function () { D.refresh(); });
+      var bugListTask = D.loadBugList().then(function () { D.refreshPhaseTabs(); D.renderExtraView(); });
       await Promise.all([
+        bugListTask,
         bugTask,
         resultTask
       ]);
@@ -2347,7 +2590,7 @@
   D.snapshotPayload = function () {
     return {
       savedAt: D.S.loadedAt || new Date().toISOString(), query: Object.assign({}, D.activeQuery()), racks: D.S.racks,
-      testResults: D.S.testResults, snapshotComparison: D.S.snapshotComparison
+      testResults: D.S.testResults, snapshotComparison: D.S.snapshotComparison, bugList: D.S.bugList
     };
   };
   D.snapshotCaseMap = function (snapshot) {
@@ -2403,7 +2646,7 @@
       if (k === 'EMBEDDED') return;
       var v = D[k];
       if (typeof v === 'function') parts.push('D.' + k + ' = ' + v.toString() + ';');
-      else if (k === 'S') parts.push('D.S = ' + JSON.stringify({ racks: [], loadedAt: null, range: D.S.range || 'all', chartType: D.S.chartType || 'pie', panels: [], active: 0, phase: D.S.phase || 'phase1', mode: 'snapshot', queries: D.S.queries || [], activeQueryKey: D.S.activeQueryKey || '', testResults: { status: 'idle', runs: [] }, snapshotComparison: null }) + ';');
+      else if (k === 'S') parts.push('D.S = ' + JSON.stringify({ racks: [], loadedAt: null, range: D.S.range || 'all', chartType: D.S.chartType || 'pie', panels: [], active: 0, phase: D.S.phase || 'phase1', mode: 'snapshot', queries: D.S.queries || [], activeQueryKey: D.S.activeQueryKey || '', testResults: { status: 'idle', runs: [] }, snapshotComparison: null, view: 'dashboard', bugList: { status: 'idle', items: [] } }) + ';');
       else if (k === '_timer' || k === '_statusFadeTimer' || k === '_statusHideTimer') return;
       else parts.push('D.' + k + ' = ' + JSON.stringify(v) + ';');
     });
@@ -2438,10 +2681,14 @@
       D.S.range = localStorage.getItem('dvdashRange') || D.S.range || 'all';
       D.S.chartType = localStorage.getItem('dvdashType') || D.S.chartType || 'pie';
       D.S.phase = localStorage.getItem('dvdashPhase') || D.S.phase || 'phase1';
+      D.S.view = localStorage.getItem('dvdashView') || 'dashboard';
     } catch (e) { }
+    if (D.S.view !== 'bugs' && D.S.view !== 'portal') D.S.view = 'dashboard';
     if (D.S.phase !== 'phase1' && D.S.phase !== 'phase2') D.S.phase = 'phase1';
     D.loadQueryCatalog();
-    D.buildShell(); D.persistWire(); D.load();
+    D.buildShell(); D.persistWire();
+    if (D.S.view !== 'dashboard' && !D.queryExtras()) D.S.view = 'dashboard';
+    D.refreshPhaseTabs(); D.renderExtraView(); D.load();
   };
   D.boot();
 })();
