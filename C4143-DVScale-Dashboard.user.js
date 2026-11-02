@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.2
+// @version      1.13.3
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2176,7 +2176,7 @@
     return map;
   };
   // Bug states get their own palette with clearly separated hues (the Case palette reuses blue/cyan/teal).
-  D.BUG_STATE_COLORS = { 'New': '#60a5fa', 'Proposed': '#60a5fa', 'Approved': '#c084fc', 'Committed': '#f472b6', 'Active': '#fb923c', 'In Progress': '#22d3ee', 'Resolved': '#facc15', 'Closed': '#34d399', 'Done': '#34d399', 'Removed': '#94a3b8', 'Unknown': '#94a3b8' };
+  D.BUG_STATE_COLORS = { 'New': '#60a5fa', 'Proposed': '#60a5fa', 'Approved': '#a3e635', 'Committed': '#f472b6', 'Active': '#c4b5fd', 'In Progress': '#fb923c', 'Resolved': '#facc15', 'Closed': '#34d399', 'Done': '#34d399', 'Removed': '#94a3b8', 'Unknown': '#94a3b8' };
   D.BUG_STATE_ORDER = ['New', 'Proposed', 'Approved', 'Committed', 'Active', 'In Progress', 'Resolved', 'Closed', 'Done', 'Removed', 'Unknown'];
   D.BUG_STATE_FALLBACK = ['#2dd4bf', '#a3e635', '#e879f9', '#38bdf8', '#fda4af'];
   D.bugStateColor = function (state) {
