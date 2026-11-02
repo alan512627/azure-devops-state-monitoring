@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
   "id": "c4143-dvscale-dashboard",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "name": "C4143 DV-Scale Dashboard",
   "description": "Track valid-Phase Test Cases using Rack Feature hierarchy placement, normalized FPGA exclusion, compact metrics, one-decimal rates, timelines and reports.",
   "publisher": "alan512627",
