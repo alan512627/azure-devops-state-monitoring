@@ -4,7 +4,9 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.13.3；本分支待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.13.4；本分支待合併 `main`）
+
+Rack Case 列表的 Test Point 標籤會隨背景資料載入同步更新，與上方 Outcome 統計採用相同資料來源；不會重建列表或清除已展開的項目。
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
