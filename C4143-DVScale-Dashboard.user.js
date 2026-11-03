@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.3
+// @version      1.13.4
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -1696,7 +1696,9 @@
     row.appendChild(D.typeBadge(n.type || 'Test Case'));
     row.appendChild(D.el('span', 'casetitle', n.title));
     row.appendChild(D.chip(n.state));
-    row.appendChild(D.testResultBadge(D.caseOutcome(n)));
+    var outcomeBadge = D.testResultBadge(D.caseOutcome(n));
+    outcomeBadge.classList.add('case-outcome-badge');
+    row.appendChild(outcomeBadge);
     var metrics = n.metrics || {};
     if (D.hasMetric(metrics.priority)) row.appendChild(D.metricBadge('Priority', 'P' + (D.priorityLevel(metrics.priority) || metrics.priority), '#c084fc'));
     (n.bugs || []).forEach(function (bug) { row.appendChild(D.bugLink(bug)); });
@@ -2496,6 +2498,13 @@
         p.outcomeLegendHost.innerHTML = ''; p.outcomeLegendHost.appendChild(D.legend(outcomeChartCounts, D.orderOutcomes, D.outcomeColor));
       } else if (p.kind === 'rack') {
         var cs = D.collect(p.rack, 'Test Case'), fc = cs.filter(D.inRange);
+        p.panel.querySelectorAll('.caserow').forEach(function (row) {
+          var previous = row.querySelector('.case-outcome-badge');
+          if (!previous || !row._case) return;
+          var updated = D.testResultBadge(D.caseOutcome(row._case));
+          updated.classList.add('case-outcome-badge');
+          previous.replaceWith(updated);
+        });
         var rackScope = D.scopeStats(D.S.phase, p.rack);
         var rackBugEntries = D.bugEntriesForRack(bugInventory, p.rack);
         var rackOnlyBugs = rackBugEntries.filter(function (entry) { return entry.racks.length === 1; }).length;

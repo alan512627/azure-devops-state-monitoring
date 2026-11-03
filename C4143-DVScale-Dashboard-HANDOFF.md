@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.3，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.4，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1310,3 +1310,8 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 ## 61. 2026-11-02 Bug Active 改為淺紫色（v1.13.3）
 
 - 依使用者要求 Active 改為淺紫 `#c4b5fd`；In Progress 恢復橘 `#fb923c`；原本紫色的 Approved 改為萊姆綠 `#a3e635`，避免與 Active 同色調。目前：New 藍、Approved 萊姆、Committed 粉、Active 淺紫、In Progress 橘、Resolved 黃、Closed／Done 綠、Removed 灰。
+
+## 62. 2026-11-03 Rack Case Test Point 背景更新（v1.13.4）
+
+- Case row 標籤在每次 dashboard refresh 從與 Outcome 統計相同的 Case Test Point 資料重新產生；背景讀取完成後即更新，無須重建樹或改變展開狀態。
+- 未更動 Test Point 的選擇與統計邏輯；尚需以登入後的 Azure DevOps Execute 畫面驗證實際對應。
