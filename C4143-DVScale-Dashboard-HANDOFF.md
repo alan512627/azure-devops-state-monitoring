@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.4，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.5，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1315,3 +1315,9 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 
 - Case row 標籤在每次 dashboard refresh 從與 Outcome 統計相同的 Case Test Point 資料重新產生；背景讀取完成後即更新，無須重建樹或改變展開狀態。
 - 未更動 Test Point 的選擇與統計邏輯；尚需以登入後的 Azure DevOps Execute 畫面驗證實際對應。
+
+## 63. 2026-11-06 Summary 新增未更新 Case 數與更新完成百分比（v1.13.5）
+
+- Overview summary 在 `FAIL RATE` 後新增 `NOT UPDATED CASES` 與 `UPDATE COMPLETE`；各 Rack 分頁 summary 也同步新增，數字只算該 Rack。
+- 定義（與 Outcome 圓餅圖、Pass／Fail rate 同一基準：選定時間範圍內全部 Case）：未更新 = Execute Test Point outcome 仍為 `Active`（含沒有 Test Point 的 Case）；更新完成 = (`Passed` + `Failed` + `Blocked` + `Not Applicable`) ÷ 全部 Case。
+- 新增 `D.updateProgress(cases)` 與 `tests/update-progress.test.cjs`；Test Point 尚未載入完成時卡片顯示 `…`。
