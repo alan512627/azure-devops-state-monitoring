@@ -1,0 +1,13 @@
+const fs = require('fs');
+const assert = require('assert');
+const source = fs.readFileSync('C4143-DVScale-Dashboard.user.js', 'utf8');
+const D = {};
+const grab = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+eval(grab('  D.percent = ', '  D.outcomeValue = '));
+eval(grab('  D.resultOutcomeKey = ', '  D.resultOutcomeSummary = '));
+const outcomes = ['Passed', 'Failed', 'Blocked', 'NotApplicable', 'Unspecified', 'Unspecified', null, 'Passed'];
+const cases = outcomes.map(outcome => ({ latestTestPoint: outcome ? { outcome } : null }));
+const progress = D.updateProgress(cases);
+assert.deepStrictEqual([progress.total, progress.updated, progress.notUpdated, progress.rate], [8, 5, 3, '62.5%']);
+assert.strictEqual(D.updateProgress([]).rate, '0%');
+console.log('PASS: not-updated count and update-complete rate follow the five Test Point outcomes');

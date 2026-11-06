@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.4
+// @version      1.13.5
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -943,6 +943,10 @@
     var counts = { Passed: 0, Failed: 0, Blocked: 0, 'Not Applicable': 0, Active: 0 };
     cases.forEach(function (testCase) { var outcome = D.caseOutcome(testCase); counts[D.resultOutcomeKey(outcome && outcome.outcome)]++; });
     return counts;
+  };
+  D.updateProgress = function (cases) {
+    var counts = D.resultOutcomeCounts(cases), total = cases.length, notUpdated = counts.Active, updated = total - notUpdated;
+    return { total: total, updated: updated, notUpdated: notUpdated, rate: total ? D.percent(updated * 100 / total) : '0%' };
   };
   D.resultOutcomeSummary = function (cases) {
     var counts = D.resultOutcomeCounts(cases), denominator = cases.length;
@@ -2369,13 +2373,17 @@
         refs.cFiltered = D.card('UPDATED IN RANGE', 0, '#60a5fa');
         refs.cPass = D.card('PASS RATE', '-', '#2dd4bf');
         refs.cFail = D.card('FAIL RATE', '-', '#fb7185');
+        refs.cNotUpdated = D.card('NOT UPDATED CASES', '-', '#94a3b8');
+        refs.cUpdatedRate = D.card('UPDATE COMPLETE', '-', '#38bdf8');
+        refs.cNotUpdated.title = 'Test Cases whose Execute Test Point outcome is still Active (no Passed / Failed / Blocked / Not Applicable result yet) in the selected time range.';
+        refs.cUpdatedRate.title = 'Test Cases with an Execute Test Point outcome (Passed + Failed + Blocked + Not Applicable) ÷ all Test Cases in the selected time range.';
         refs.cProgress = D.card('IN PROGRESS CASES', 0, '#818cf8');
         refs.cBugs = D.card('BUGS / AFFECTED CASES', '-', '#fb923c');
         refs.cPass.title = 'Execute Test Point outcome = Passed ÷ all Test Cases in the selected time range (same basis as the Outcome pie chart).';
         refs.cFail.title = 'Execute Test Point outcome = Failed ÷ all Test Cases in the selected time range (same basis as the Outcome pie chart).';
         refs.cProgress.title = 'Test Cases whose current Azure DevOps State is In Progress.';
         refs.cBugs.title = 'Unique Bugs / affected Test Cases after Child link, reciprocal Parent, and Case History validation.';
-        [refs.cRacks, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cProgress, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
+        [refs.cRacks, refs.cCase, refs.cFiltered, refs.cPass, refs.cFail, refs.cNotUpdated, refs.cUpdatedRate, refs.cProgress, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
         var stickyTop = D.el('div', 'panel-sticky'); stickyTop.appendChild(cards); panel.appendChild(stickyTop);
         var grid = D.el('div', 'grid');
         var b1 = D.box('Test Case state distribution — all Racks');
@@ -2400,9 +2408,13 @@
       } else if (def.kind === 'rack') {
         refs.cCase = D.card('TEST CASES', '-', '#34d399');
         refs.cFiltered = D.card('UPDATED IN RANGE', 0, '#60a5fa');
+        refs.cNotUpdated = D.card('NOT UPDATED CASES', '-', '#94a3b8');
+        refs.cUpdatedRate = D.card('UPDATE COMPLETE', '-', '#38bdf8');
+        refs.cNotUpdated.title = 'Test Cases in this Rack whose Execute Test Point outcome is still Active in the selected time range.';
+        refs.cUpdatedRate.title = 'Test Cases in this Rack with an Execute Test Point outcome (Passed + Failed + Blocked + Not Applicable) ÷ all Test Cases in the selected time range.';
         refs.cBugs = D.card('CHILD BUGS', 0, '#f87171');
         refs.cBugs.title = 'Unique Bugs whose Child link, reciprocal Parent, and Case History all match this Rack\'s Test Case.';
-        [refs.cCase, refs.cFiltered, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
+        [refs.cCase, refs.cFiltered, refs.cNotUpdated, refs.cUpdatedRate, refs.cBugs].forEach(function (c) { cards.appendChild(c); });
         var rackSticky = D.el('div', 'panel-sticky'); rackSticky.appendChild(cards); panel.appendChild(rackSticky);
         var g = D.el('div', 'grid');
         var rb1 = D.box(def.rack.label + ' State distribution');
@@ -2477,6 +2489,9 @@
         p.cFiltered._val.textContent = f.length;
         p.cPass._val.textContent = resultReady ? D.outcomeValue(resultOutcomes.passed, resultOutcomes.passRate) : '…';
         p.cFail._val.textContent = resultReady ? D.outcomeValue(resultOutcomes.failed, resultOutcomes.failRate) : '…';
+        var progress = D.updateProgress(f);
+        p.cNotUpdated._val.textContent = resultReady ? progress.notUpdated : '…';
+        p.cUpdatedRate._val.textContent = resultReady ? progress.rate : '…';
         p.cProgress._val.textContent = outcomes.inProgress;
         p.cBugs._val.textContent = linkedBugs.length + ' / ' + bugCases.length;
         p.tableBox.innerHTML = ''; p.tableBox.appendChild(D.rackTable(phaseRacks));
@@ -2510,6 +2525,9 @@
         var rackOnlyBugs = rackBugEntries.filter(function (entry) { return entry.racks.length === 1; }).length;
         p.cCase._val.textContent = cs.length;
         p.cFiltered._val.textContent = fc.length;
+        var rackProgress = D.updateProgress(fc), rackProgressReady = D.S.testResults && D.S.testResults.status === 'ok';
+        p.cNotUpdated._val.textContent = rackProgressReady ? rackProgress.notUpdated : '…';
+        p.cUpdatedRate._val.textContent = rackProgressReady ? rackProgress.rate : '…';
         p.cBugs._val.textContent = rackBugEntries.length;
         var c2 = D.countStates(fc);
         var rackResultOutcomes = D.resultOutcomeSummary(fc), rackResultReady = D.S.testResults && D.S.testResults.status === 'ok';
