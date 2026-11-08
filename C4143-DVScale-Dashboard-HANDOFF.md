@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.9，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.10，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1343,3 +1343,8 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 
 - `D.crossRackOutcomeChips(..., mode)` 新增 `mode`：State 圓餅下方的清單用 `'state'`，色塊顏色為各 Rack 同名 Case 的 Work Item State（`D.colorFor`），tooltip 顯示 State 並附 Outcome；Outcome 圓餅下方的清單維持顯示 Test Point Outcome。Overview 與 Rack 分頁皆同。清單說明文字隨模式切換。
 - `Expand all`／`Collapse all` 按鈕不換行。
+
+## 68. 2026-11-08 Review Result 改為獨立的琥珀色（v1.13.10）
+
+- `Review Result` 原本不在 `D.STATE_COLORS`，退回預設淺灰 `#cbd5e1`，與 Not Started 灰 `#94a3b8` 難以分辨；新增 `"Review Result":"#f59e0b"`（琥珀）。目前 C4143 用到的 State：Not Started 灰、In Progress 靛、Review Result 琥珀、Blocked 紅、Closed 青綠。
+- `D.STATE_ORDER` 將 Review Result 排在 In Progress 之後；頂端 `State colours` 圖例改列實際使用的 Not Started／In Progress／Review Result／Closed／Blocked。

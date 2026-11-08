@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.9
+// @version      1.13.10
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -69,11 +69,11 @@
     { name: 'C4143_DV-Scale', org: 'https://azurecsi.visualstudio.com', orgName: 'azurecsi', project: 'Dev', queryId: '9254024e-6a97-44ed-953b-1aa07d38fb48', queryUrl: 'https://azurecsi.visualstudio.com/Dev/_queries/query/9254024e-6a97-44ed-953b-1aa07d38fb48/', builtin: true },
     { name: '[EchoFalls][C4142][PSE] EVT - Scale Testing', org: 'https://azurecsi.visualstudio.com', orgName: 'azurecsi', project: 'Dev', queryId: '6e06c765-2ff5-43c4-80c6-e78438eea6d9', queryUrl: 'https://azurecsi.visualstudio.com/Dev/_queries/query/6e06c765-2ff5-43c4-80c6-e78438eea6d9/', builtin: true }
   ];
-  D.STATE_COLORS = {"Not Started":"#94a3b8","New":"#60a5fa","Proposed":"#f5b544","Design":"#a78bfa","In Progress":"#818cf8","Active":"#818cf8","Ready":"#38bdf8","Committed":"#22d3ee","Passed":"#34d399","Closed":"#2dd4bf","Done":"#2dd4bf","Completed":"#2dd4bf","Failed":"#f87171","Blocked":"#fb7185","Removed":"#9ca3af","Resolved":"#22d3ee","Paused":"#fbbf24"};
+  D.STATE_COLORS = {"Not Started":"#94a3b8","New":"#60a5fa","Proposed":"#f5b544","Design":"#a78bfa","In Progress":"#818cf8","Active":"#818cf8","Ready":"#38bdf8","Committed":"#22d3ee","Passed":"#34d399","Closed":"#2dd4bf","Done":"#2dd4bf","Completed":"#2dd4bf","Failed":"#f87171","Blocked":"#fb7185","Removed":"#9ca3af","Resolved":"#22d3ee","Paused":"#fbbf24","Review Result":"#f59e0b"};
   D.OUTCOME_COLORS = { Passed: '#34d399', Failed: '#f87171', Blocked: '#fb923c', 'Not Applicable': '#fbbf24', Active: '#818cf8' };
   D.OUTCOME_ORDER = ['Passed', 'Failed', 'Blocked', 'Not Applicable', 'Active'];
   D.TYPE_COLORS = {"Epic":"#c084fc","Feature":"#38bdf8","System Requirement":"#fbbf24","Test Case":"#34d399","User Story":"#818cf8","Task":"#60a5fa","Bug":"#fb7185","Issue":"#fb923c"};
-  D.STATE_ORDER = ["Not Started","New","Proposed","Design","Ready","Committed","Active","In Progress","Paused","Blocked","Failed","Passed","Resolved","Closed","Done","Completed","Removed"];
+  D.STATE_ORDER = ["Not Started","New","Proposed","Design","Ready","Committed","Active","In Progress","Review Result","Paused","Blocked","Failed","Passed","Resolved","Closed","Done","Completed","Removed"];
   D.RANGES = [["all","All time"],["1","Last 1 day"],["3","Last 3 days"],["7","Last 7 days"],["30","Last 30 days"],["60","Last 60 days"]];
   D.FIELD_SPECS = {
     priority: { fallback: 'Microsoft.VSTS.Common.Priority', aliases: ['Case Priority', 'Priority'] },
@@ -2067,7 +2067,7 @@
     l3.insertBefore(cb, l3.firstChild); ctl.appendChild(l3);
     ctl.appendChild(D.el('span', 'spacer'));
     var lg = D.el('span', 'small'); lg.appendChild(document.createTextNode('State colours: '));
-    ['Not Started', 'In Progress', 'Passed', 'Failed', 'Blocked'].forEach(function (s) { lg.appendChild(D.chip(s)); lg.appendChild(document.createTextNode(' ')); });
+    ['Not Started', 'In Progress', 'Review Result', 'Closed', 'Blocked'].forEach(function (s) { lg.appendChild(D.chip(s)); lg.appendChild(document.createTextNode(' ')); });
     ctl.appendChild(lg);
     var tl = D.el('span', 'small colour-key'); tl.appendChild(document.createTextNode('Work item colours: '));
     ['Feature', 'System Requirement', 'Test Case'].forEach(function (type) { tl.appendChild(D.typeBadge(type)); });
