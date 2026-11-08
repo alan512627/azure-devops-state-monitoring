@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.13，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.14，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1380,3 +1380,7 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
   其餘歸 `Other`。
 - `D.caseCategory(title)`：先以 `D.titleSimilarity` 找最接近的標準標題（≥60% 採用其分類），否則依 `D.CATEGORY_KEYWORD_ORDER` 的關鍵字規則，皆不符則 Other；結果以標題快取。
 - Outcome matrix 新增 `Group: by category`（預設）／`none`；分類標題列顯示項目數、跨 Rack 分佈、P／F 數與 `done/總格數`，點擊可收合（`D.S.matrixCatCollapsed`）；Rack totals 仍計入收合中的列。新增 `tests/test-categories.test.cjs`。
+
+## 72. 2026-11-08 Review Result 改為淺黃色（v1.13.14）
+
+- 依使用者從預覽圖（琥珀／淺黃／淡黃／淺黃綠／黃綠）選定 Option A：`D.STATE_COLORS["Review Result"]` 由琥珀 `#f59e0b` 改為淺黃 `#fde68a`。影響 State 圓餅、圖例、狀態清單、R1–R5 State 色塊與 Case 列 State 標籤。目前 State 配色：Not Started 灰、In Progress 靛、Review Result 淺黃、Blocked 紅、Closed 青綠。
