@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.5，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.7，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1321,3 +1321,15 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - Overview summary 在 `FAIL RATE` 後新增 `NOT UPDATED CASES` 與 `UPDATE COMPLETE`；各 Rack 分頁 summary 也同步新增，數字只算該 Rack。
 - 定義（與 Outcome 圓餅圖、Pass／Fail rate 同一基準：選定時間範圍內全部 Case）：未更新 = Execute Test Point outcome 仍為 `Active`（含沒有 Test Point 的 Case）；更新完成 = (`Passed` + `Failed` + `Blocked` + `Not Applicable`) ÷ 全部 Case。
 - 新增 `D.updateProgress(cases)` 與 `tests/update-progress.test.cjs`；Test Point 尚未載入完成時卡片顯示 `…`。
+
+## 64. 2026-11-08 Overview 圓餅圖下方的 status → Rack 下拉清單與點選導航（v1.13.6）
+
+- Overview 的 `Test Case state distribution` 與 `Test Result Outcome distribution` 下方新增 `D.statusRackBreakdown`：每個 status 一個可展開的 `<details>`（色點、數量・百分比、各 Rack 比例迷你條），展開後列出 Rack 1–5 的數量長條；有 Case 的 Rack 可再展開列出 Case（ID 連結、標題，State 清單附 Outcome、Outcome 清單附 State）。數量與圓餅圖同一基準（選定時間範圍內的 Case）。附 `Expand all`／`Collapse all`。
+- 展開狀態存在 `D.S.breakdownOpen`，`D.refresh()` 重繪後保留。
+- 點選導航：`D.pie` 的扇形／單色圓環、`D.bar` 的長條、`D.legend` 的 chip 加上 `data-status`；`D.linkChartToBreakdown` 在點擊時展開對應 status、平滑捲動並短暫加黃框提示。圖上的百分比文字設 `pointer-events:none`，點文字也能選到扇形。
+- Outcome 清單在 Test Point 載入前顯示提示文字；沒有 Case 的 Rack 以灰色一般列呈現（避免使用全域 `.empty` class）。
+
+## 65. 2026-11-08 Expand all 展開到 Case、Rack 分頁加入 status → Case 清單（v1.13.7）
+
+- `Expand all` 改為展開清單內所有 `<details>`（status 與各 Rack 的 Case 清單）；`Collapse all` 不變。
+- 各 Rack 分頁的 State 圓餅與 Outcome 圓餅下方加入 `D.statusRackBreakdown(..., { flat: true })`：只有單一 Rack，因此為 status → Case 兩層（無 Rack 層、不顯示 Rack 比例迷你條）；扇形／圖例點選導航同 Overview。展開狀態以 `rack:<id>:state`／`rack:<id>:outcome` 為 key 存在 `D.S.breakdownOpen`。

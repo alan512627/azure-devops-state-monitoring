@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.5
+// @version      1.13.7
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -1193,14 +1193,14 @@
       return s;
     }
     if (keys.length === 1) {
-      s.appendChild(D.svg('circle', { cx: cx, cy: cy, r: R, fill: colorFn(keys[0]) }));
+      s.appendChild(D.svg('circle', { cx: cx, cy: cy, r: R, fill: colorFn(keys[0]), 'data-status': keys[0] }));
       s.appendChild(D.svg('circle', { cx: cx, cy: cy, r: r, fill: '#111d33' }));
       var tt = D.svg('title'); tt.textContent = keys[0] + ': ' + counts[keys[0]] + ' (100%)'; s.appendChild(tt);
     } else {
       var a = -Math.PI / 2;
       keys.forEach(function (k) {
         var frac = counts[k] / total, a1 = a + frac * Math.PI * 2;
-        var p = D.svg('path', { d: D.arcPath(cx, cy, R, r, a, a1), fill: colorFn(k), stroke: '#0b1220', 'stroke-width': '2' });
+        var p = D.svg('path', { d: D.arcPath(cx, cy, R, r, a, a1), fill: colorFn(k), stroke: '#0b1220', 'stroke-width': '2', 'data-status': k });
         var ti = D.svg('title'); ti.textContent = k + ': ' + counts[k] + ' (' + D.percent(frac * 100) + ')';
         p.appendChild(ti); s.appendChild(p);
         if (frac > 0.06) {
@@ -1233,7 +1233,7 @@
     var slot = pw / keys.length, bw = Math.min(60, slot * 0.6);
     keys.forEach(function (k, i) {
       var v = counts[k], h = ph * v / max, x = L + slot * i + (slot - bw) / 2, y = T + ph - h;
-      var rect = D.svg('rect', { x: x, y: y, width: bw, height: Math.max(h, 1), fill: colorFn(k), rx: 5 });
+      var rect = D.svg('rect', { x: x, y: y, width: bw, height: Math.max(h, 1), fill: colorFn(k), rx: 5, 'data-status': k });
       var ti = D.svg('title'); ti.textContent = k + ': ' + v + ' (' + D.percent(v * 100 / total) + ')'; rect.appendChild(ti);
       s.appendChild(rect);
       var vt = D.svg('text', { x: x + bw / 2, y: y - 5, fill: '#e2e8f0', 'text-anchor': 'middle', 'font-size': '11', 'font-weight': '700' }); vt.textContent = v; s.appendChild(vt);
@@ -1277,7 +1277,7 @@
     var total = D.sum(counts);
     orderFn(Object.keys(counts)).forEach(function (k) {
       var c = D.chip(k, counts[k] + ' (' + D.percent(total ? counts[k] * 100 / total : 0) + ')');
-      c.style.background = colorFn(k);
+      c.style.background = colorFn(k); c.setAttribute('data-status', k);
       wrap.appendChild(c);
     });
     return wrap;
@@ -2350,6 +2350,92 @@
     + "\n.portal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.portal-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:#111d33;border:1px solid #253858;border-left:4px solid #34d399}.portal-card.unset{border-left-color:#fbbf24}"
     + "\n.portal-title{font-size:15px;font-weight:700;color:#e2e8f0}.portal-host{font-size:12px;color:#93c5fd;word-break:break-all}.portal-card.unset .portal-host{color:#fbbf24}.portal-actions{display:flex;gap:8px;margin-top:6px;align-items:center}.portal-actions button{width:auto}"
     + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";
+  // Collapsible "status → Rack 1–5 → Cases" breakdown rendered under the Overview pie charts.
+  // Open/closed state survives D.refresh() via D.S.breakdownOpen.
+  D.statusRackBreakdown = function (scope, phaseRacks, keyFn, orderFn, colorFn, detailFn, options) {
+    options = options || {};
+    var flat = !!options.flat; // single-Rack view: status → Cases (no Rack level)
+    D.S.breakdownOpen = D.S.breakdownOpen || {};
+    var wrap = D.el('div', 'status-break'), groups = {}, total = 0;
+    phaseRacks.forEach(function (rack, rackIndex) {
+      D.collect(rack, 'Test Case').filter(D.inRange).forEach(function (testCase) {
+        var key = keyFn(testCase) || 'Unknown', group = groups[key] = groups[key] || { count: 0, racks: phaseRacks.map(function () { return []; }) };
+        group.count++; group.racks[rackIndex].push(testCase); total++;
+      });
+    });
+    var keys = orderFn(Object.keys(groups));
+    if (!keys.length) return wrap;
+    var tools = D.el('div', 'status-break-tools'), expand = D.el('button', null, 'Expand all'), collapse = D.el('button', null, 'Collapse all');
+    tools.appendChild(D.el('span', 'small', (flat ? 'Cases by status' : 'Rack breakdown by status') + ' · click a chart slice or legend chip to jump here')); tools.appendChild(expand); tools.appendChild(collapse); wrap.appendChild(tools);
+    function remember(details, id) {
+      details.open = !!D.S.breakdownOpen[id];
+      details.addEventListener('toggle', function () { if (details.open) D.S.breakdownOpen[id] = 1; else delete D.S.breakdownOpen[id]; });
+    }
+    function caseList(list) {
+      var ul = D.el('ul', 'status-break-cases' + (flat ? ' flat' : ''));
+      list.slice().sort(function (a, b) { return (+a.id || 0) - (+b.id || 0); }).forEach(function (testCase) {
+        var li = D.el('li'), a = D.el('a', null, '#' + testCase.id); a.href = D.wiUrl(testCase.id); a.target = '_blank'; a.rel = 'noopener';
+        li.appendChild(a); li.appendChild(D.el('span', 'status-break-case-title', testCase.title || ''));
+        var extra = detailFn ? detailFn(testCase) : ''; if (extra) li.appendChild(D.el('span', 'status-break-case-extra', extra));
+        ul.appendChild(li);
+      });
+      return ul;
+    }
+    keys.forEach(function (key) {
+      var group = groups[key], statusId = scope + '|' + key, details = D.el('details', 'status-break-item'), summary = D.el('summary');
+      details.setAttribute('data-status', key);
+      var dot = D.el('span', 'status-break-dot'); dot.style.background = colorFn(key); summary.appendChild(dot);
+      summary.appendChild(D.el('span', 'status-break-name', key));
+      summary.appendChild(D.el('span', 'status-break-count', group.count + ' · ' + D.percent(total ? group.count * 100 / total : 0)));
+      var mini = D.el('span', 'status-break-mini' + (flat ? ' hide' : ''));
+      group.racks.forEach(function (list, i) { var seg = D.el('i'); seg.style.flexGrow = String(list.length); seg.style.background = colorFn(key); seg.style.opacity = String(0.45 + 0.55 * (i % 2 ? 0.6 : 1)); seg.title = phaseRacks[i].label + ': ' + list.length; if (list.length) mini.appendChild(seg); });
+      summary.appendChild(mini);
+      details.appendChild(summary); remember(details, statusId);
+      if (flat) { var flatBody = D.el('div', 'status-break-racks flat'); flatBody.appendChild(caseList(group.racks[0] || [])); details.appendChild(flatBody); wrap.appendChild(details); return; }
+      var body = D.el('div', 'status-break-racks'), maxRack = Math.max.apply(null, group.racks.map(function (list) { return list.length; }).concat([1]));
+      group.racks.forEach(function (list, i) {
+        var rack = phaseRacks[i], rackId = statusId + '|' + rack.label, rd = D.el(list.length ? 'details' : 'div', 'status-break-rack' + (list.length ? '' : ' is-empty')), rs = D.el(list.length ? 'summary' : 'div', 'status-break-rack-row');
+        rs.appendChild(D.el('span', 'status-break-rack-name', rack.label));
+        var bar = D.el('span', 'status-break-bar'), fill = D.el('i'); fill.style.width = (list.length * 100 / maxRack) + '%'; fill.style.background = colorFn(key); bar.appendChild(fill); rs.appendChild(bar);
+        rs.appendChild(D.el('span', 'status-break-rack-count', String(list.length)));
+        rd.appendChild(rs);
+        if (list.length) {
+          remember(rd, rackId);
+          rd.appendChild(caseList(list));
+        }
+        body.appendChild(rd);
+      });
+      details.appendChild(body); wrap.appendChild(details);
+    });
+    expand.addEventListener('click', function () { Array.prototype.forEach.call(wrap.querySelectorAll('details'), function (d) { d.open = true; }); });
+    collapse.addEventListener('click', function () { Array.prototype.forEach.call(wrap.querySelectorAll('details'), function (d) { d.open = false; }); });
+    return wrap;
+  };
+  // Clicking a pie slice / bar / legend chip opens that status in the breakdown below and scrolls to it.
+  D.linkChartToBreakdown = function (hosts, breakHost) {
+    hosts.forEach(function (host) {
+      if (!host || host._breakLinked) return; host._breakLinked = true;
+      host.addEventListener('click', function (event) {
+        var target = event.target && event.target.closest ? event.target.closest('[data-status]') : null; if (!target) return;
+        var key = target.getAttribute('data-status'), items = breakHost.querySelectorAll('details.status-break-item'), match = null;
+        Array.prototype.forEach.call(items, function (d) { if (d.getAttribute('data-status') === key) match = d; });
+        if (!match) return;
+        match.open = true;
+        match.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        match.classList.remove('status-break-flash'); void match.offsetWidth; match.classList.add('status-break-flash');
+      });
+    });
+  };
+  D.CSS += "\n.chartwrap svg text{pointer-events:none}.chartwrap [data-status],.legend .chip[data-status]{cursor:pointer}.chartwrap path[data-status]:hover,.chartwrap circle[data-status]:hover,.chartwrap rect[data-status]:hover{filter:brightness(1.15)}.status-break-flash{animation:statusBreakFlash 1.4s ease-out}@keyframes statusBreakFlash{0%{box-shadow:0 0 0 3px #fbbf24}100%{box-shadow:0 0 0 0 transparent}}";
+  D.CSS += "\n.status-break{margin-top:12px;border-top:1px solid #1e2b45;padding-top:10px}.status-break-tools{display:flex;align-items:center;gap:8px;margin:0 0 6px}.status-break-tools .small{margin-right:auto}.status-break-tools button{width:auto;padding:3px 10px;font-size:11px}"
+    + "\n.status-break-item{border:1px solid #1e2b45;border-radius:8px;margin:0 0 6px;background:#0f1a2e}.status-break-item>summary{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;list-style:none;font-size:13px;color:#e2e8f0}.status-break-item>summary::-webkit-details-marker{display:none}"
+    + "\n.status-break-item>summary::before{content:'▸';color:#8fa3c0;font-size:11px;width:10px;transition:transform .15s}.status-break-item[open]>summary::before{transform:rotate(90deg)}"
+    + "\n.status-break-dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}.status-break-name{font-weight:700}.status-break-count{color:#9fb3d0;font-size:12px;white-space:nowrap}.status-break-mini{display:flex;gap:2px;margin-left:auto;width:120px;height:6px}.status-break-mini i{display:block;height:100%;border-radius:2px;min-width:3px}"
+    + "\n.status-break-racks{padding:2px 10px 8px 28px}.status-break-rack-row{display:grid;grid-template-columns:70px 1fr 36px;align-items:center;gap:10px;padding:4px 0;cursor:pointer;list-style:none;font-size:12px;color:#cbd5e1}.status-break-rack-row::-webkit-details-marker{display:none}.status-break-rack.is-empty>.status-break-rack-row{cursor:default;color:#5f7391}.status-break-rack[open]>.status-break-rack-row{color:#fff;font-weight:600}"
+    + "\n.status-break-bar{height:8px;background:#16243d;border-radius:4px;overflow:hidden}.status-break-bar i{display:block;height:100%;border-radius:4px}.status-break-rack-count{text-align:right;font-weight:700}"
+    + "\n.status-break-cases{margin:2px 0 6px 0;padding:0 0 0 80px;list-style:none;font-size:12px;max-height:220px;overflow:auto}.status-break-cases li{display:flex;gap:8px;padding:2px 0;border-bottom:1px dashed #1c2942}.status-break-cases a{color:#93c5fd;white-space:nowrap}.status-break-case-title{color:#cbd5e1;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status-break-case-extra{color:#8fa3c0;white-space:nowrap}"
+    + "\n.status-break-mini.hide{display:none}.status-break-racks.flat{padding:2px 10px 8px 28px}.status-break-cases.flat{padding-left:0;max-height:320px}"
+    + "\n@media(max-width:620px){.status-break-mini{display:none}.status-break-cases{padding-left:10px}}";
   D.buildPanels = function () {
     D.updateIdentity();
     var tabsBar = document.getElementById('tabs'), host = document.getElementById('panels');
@@ -2389,6 +2475,7 @@
         var b1 = D.box('Test Case state distribution — all Racks');
         refs.chartHost = D.el('div', 'chartwrap'); b1.appendChild(refs.chartHost);
         refs.legendHost = D.el('div'); b1.appendChild(refs.legendHost);
+        refs.stateBreakHost = D.el('div'); b1.appendChild(refs.stateBreakHost);
         var b2 = D.box('Rack comparison (stacked bar)');
         refs.cmpHost = D.el('div', 'chartwrap'); b2.appendChild(refs.cmpHost);
         grid.appendChild(b1); grid.appendChild(b2); panel.appendChild(grid);
@@ -2396,6 +2483,7 @@
         var ob1 = D.box('Test Result Outcome distribution — all Racks');
         refs.outcomePieHost = D.el('div', 'chartwrap'); ob1.appendChild(refs.outcomePieHost);
         refs.outcomeLegendHost = D.el('div'); ob1.appendChild(refs.outcomeLegendHost);
+        refs.outcomeBreakHost = D.el('div'); ob1.appendChild(refs.outcomeBreakHost);
         var ob2 = D.box('Test Point Outcome counts — by Rack');
         refs.outcomeBarHost = D.el('div', 'chartwrap'); ob2.appendChild(refs.outcomeBarHost);
         outcomeGrid.appendChild(ob1); outcomeGrid.appendChild(ob2); panel.appendChild(outcomeGrid);
@@ -2420,12 +2508,14 @@
         var rb1 = D.box(def.rack.label + ' State distribution');
         refs.chartHost = D.el('div', 'chartwrap'); rb1.appendChild(refs.chartHost);
         refs.legendHost = D.el('div'); rb1.appendChild(refs.legendHost);
+        refs.stateBreakHost = D.el('div'); rb1.appendChild(refs.stateBreakHost);
         var rb2 = D.box('State summary table');
         refs.tableBox = D.el('div'); rb2.appendChild(refs.tableBox);
         g.appendChild(rb1); g.appendChild(rb2); panel.appendChild(g);
         var outcomeBox = D.box(def.rack.label + ' Test Result Outcome distribution');
         refs.outcomeHost = D.el('div', 'chartwrap'); outcomeBox.appendChild(refs.outcomeHost);
         refs.outcomeLegendHost = D.el('div'); outcomeBox.appendChild(refs.outcomeLegendHost);
+        refs.outcomeBreakHost = D.el('div'); outcomeBox.appendChild(refs.outcomeBreakHost);
         var outcomeTableBox = D.box(def.rack.label + ' Outcome summary');
         refs.outcomeTableBox = D.el('div'); outcomeTableBox.appendChild(refs.outcomeTableBox);
         var outcomeGrid = D.el('div', 'grid'); outcomeGrid.appendChild(outcomeBox); outcomeGrid.appendChild(outcomeTableBox); panel.appendChild(outcomeGrid);
@@ -2501,6 +2591,11 @@
         var counts = D.countStates(f);
         D.drawInto(p.chartHost, counts);
         p.legendHost.innerHTML = ''; p.legendHost.appendChild(D.legend(counts));
+        p.stateBreakHost.innerHTML = '';
+        p.stateBreakHost.appendChild(D.statusRackBreakdown('state', phaseRacks, function (c) { return c.state; }, D.orderStates, D.colorFor, function (c) {
+          return resultReady ? 'Outcome: ' + D.resultOutcomeKey(D.caseOutcome(c) && D.caseOutcome(c).outcome) : '';
+        }));
+        D.linkChartToBreakdown([p.chartHost, p.legendHost], p.stateBreakHost);
         var stateSet = {};
         var perRack = phaseRacks.map(function (r) { var m = D.countStates(D.collect(r, 'Test Case').filter(D.inRange)); for (var k in m) stateSet[k] = 1; return m; });
         p.cmpHost.innerHTML = '';
@@ -2511,6 +2606,10 @@
         var outcomePerRack = phaseRacks.map(function (rack) { return D.resultOutcomeCounts(D.collect(rack, 'Test Case').filter(D.inRange)); });
         p.outcomeBarHost.innerHTML = ''; p.outcomeBarHost.appendChild(D.stacked(phaseRacks.map(function (rack) { return rack.label; }), outcomePerRack, D.OUTCOME_ORDER, D.outcomeColor));
         p.outcomeLegendHost.innerHTML = ''; p.outcomeLegendHost.appendChild(D.legend(outcomeChartCounts, D.orderOutcomes, D.outcomeColor));
+        p.outcomeBreakHost.innerHTML = '';
+        if (resultReady) p.outcomeBreakHost.appendChild(D.statusRackBreakdown('outcome', phaseRacks, function (c) { var o = D.caseOutcome(c); return D.resultOutcomeKey(o && o.outcome); }, D.orderOutcomes, D.outcomeColor, function (c) { return 'State: ' + (c.state || '-'); }));
+        else p.outcomeBreakHost.appendChild(D.el('div', 'small status-break', 'Rack breakdown appears after Test Point outcomes load …'));
+        D.linkChartToBreakdown([p.outcomePieHost, p.outcomeLegendHost], p.outcomeBreakHost);
       } else if (p.kind === 'rack') {
         var cs = D.collect(p.rack, 'Test Case'), fc = cs.filter(D.inRange);
         p.panel.querySelectorAll('.caserow').forEach(function (row) {
@@ -2537,9 +2636,19 @@
         p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable([p.rack], bugInventory));
         D.drawInto(p.chartHost, c2);
         p.legendHost.innerHTML = ''; p.legendHost.appendChild(D.legend(c2));
+        var rackScopeKey = 'rack:' + (p.rack.id || p.rack.label);
+        p.stateBreakHost.innerHTML = '';
+        p.stateBreakHost.appendChild(D.statusRackBreakdown(rackScopeKey + ':state', [p.rack], function (c) { return c.state; }, D.orderStates, D.colorFor, function (c) {
+          return rackResultReady ? 'Outcome: ' + D.resultOutcomeKey(D.caseOutcome(c) && D.caseOutcome(c).outcome) : '';
+        }, { flat: true }));
+        D.linkChartToBreakdown([p.chartHost, p.legendHost], p.stateBreakHost);
         var rackOutcomeCounts = rackResultReady ? rackResultOutcomes.counts : { Active: fc.length };
         p.outcomeHost.innerHTML = ''; p.outcomeHost.appendChild(D.pie(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor));
         p.outcomeLegendHost.innerHTML = ''; p.outcomeLegendHost.appendChild(D.legend(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor));
+        p.outcomeBreakHost.innerHTML = '';
+        if (rackResultReady) p.outcomeBreakHost.appendChild(D.statusRackBreakdown(rackScopeKey + ':outcome', [p.rack], function (c) { var o = D.caseOutcome(c); return D.resultOutcomeKey(o && o.outcome); }, D.orderOutcomes, D.outcomeColor, function (c) { return 'State: ' + (c.state || '-'); }, { flat: true }));
+        else p.outcomeBreakHost.appendChild(D.el('div', 'small status-break', 'Case list appears after Test Point outcomes load …'));
+        D.linkChartToBreakdown([p.outcomeHost, p.outcomeLegendHost], p.outcomeBreakHost);
         p.outcomeTableBox.innerHTML = ''; p.outcomeTableBox.appendChild(D.statsTable(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor, 'Outcome'));
       }
     });
