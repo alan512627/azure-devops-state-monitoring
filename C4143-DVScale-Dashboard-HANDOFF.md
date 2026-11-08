@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.14，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.15，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1384,3 +1384,19 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 ## 72. 2026-11-08 Review Result 改為淺黃色（v1.13.14）
 
 - 依使用者從預覽圖（琥珀／淺黃／淡黃／淺黃綠／黃綠）選定 Option A：`D.STATE_COLORS["Review Result"]` 由琥珀 `#f59e0b` 改為淺黃 `#fde68a`。影響 State 圓餅、圖例、狀態清單、R1–R5 State 色塊與 Case 列 State 標籤。目前 State 配色：Not Started 灰、In Progress 靛、Review Result 淺黃、Blocked 紅、Closed 青綠。
+
+## 73. 2026-11-08 分類加上 Log owner（v1.13.15）
+
+- `D.TEST_CATEGORIES` 每個分類新增 `owner`：
+  | 分類 | Log owner |
+  |---|---|
+  | BIOS OpMode | （未指定） |
+  | Enumeration | Penny |
+  | FW update | Paul |
+  | Power cycling | Raymond |
+  | Stress | Rex |
+  | Virtualization | Rex |
+  | MPF | Youyu |
+  | Performance | Youyu |
+  | RSCM CLI | Penny |
+- Outcome matrix 的分類標題列在分類名稱後顯示 `Log owner: <name>` 標籤；未指定時顯示虛線 `Log owner: —`。新增 `D.categoryOwner(name)`，`tests/test-categories.test.cjs` 同步檢查 owner。
