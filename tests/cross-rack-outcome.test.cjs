@@ -1,0 +1,15 @@
+const fs = require('fs');
+const assert = require('assert');
+const source = fs.readFileSync('C4143-DVScale-Dashboard.user.js', 'utf8');
+const D = {};
+const grab = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+eval(grab('  D.normalizedTitle = ', '\n') );
+eval(grab('  D.collect = ', '\n'));
+eval(grab('  D.crossRackIndex = ', '  D.crossRackOutcomeChips = '));
+const tc = (id, title) => ({ id, type: 'Test Case', title });
+const racks = [1, 2, 3].map(r => ({ type: 'Feature', label: 'Rack #' + r, children: [tc(r * 100 + 1, 'Run BMC FW  update'), tc(r * 100 + 2, r === 3 ? 'Only on rack 3' : 'PXE cycle')] }));
+const index = D.crossRackIndex(racks);
+assert.deepStrictEqual(index['run bmc fw update'].map(c => c && c.id), [101, 201, 301]);
+assert.deepStrictEqual(index['pxe cycle'].map(c => c && c.id), [102, 202, null]);
+assert.deepStrictEqual(index['only on rack 3'].map(c => c && c.id), [null, null, 302]);
+console.log('PASS: the same Case is matched across Racks by normalized title, with gaps for missing Racks');
