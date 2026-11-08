@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.6
+// @version      1.13.7
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2352,7 +2352,9 @@
     + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";
   // Collapsible "status → Rack 1–5 → Cases" breakdown rendered under the Overview pie charts.
   // Open/closed state survives D.refresh() via D.S.breakdownOpen.
-  D.statusRackBreakdown = function (scope, phaseRacks, keyFn, orderFn, colorFn, detailFn) {
+  D.statusRackBreakdown = function (scope, phaseRacks, keyFn, orderFn, colorFn, detailFn, options) {
+    options = options || {};
+    var flat = !!options.flat; // single-Rack view: status → Cases (no Rack level)
     D.S.breakdownOpen = D.S.breakdownOpen || {};
     var wrap = D.el('div', 'status-break'), groups = {}, total = 0;
     phaseRacks.forEach(function (rack, rackIndex) {
@@ -2364,10 +2366,20 @@
     var keys = orderFn(Object.keys(groups));
     if (!keys.length) return wrap;
     var tools = D.el('div', 'status-break-tools'), expand = D.el('button', null, 'Expand all'), collapse = D.el('button', null, 'Collapse all');
-    tools.appendChild(D.el('span', 'small', 'Rack breakdown by status · click a chart slice or legend chip to jump here')); tools.appendChild(expand); tools.appendChild(collapse); wrap.appendChild(tools);
+    tools.appendChild(D.el('span', 'small', (flat ? 'Cases by status' : 'Rack breakdown by status') + ' · click a chart slice or legend chip to jump here')); tools.appendChild(expand); tools.appendChild(collapse); wrap.appendChild(tools);
     function remember(details, id) {
       details.open = !!D.S.breakdownOpen[id];
       details.addEventListener('toggle', function () { if (details.open) D.S.breakdownOpen[id] = 1; else delete D.S.breakdownOpen[id]; });
+    }
+    function caseList(list) {
+      var ul = D.el('ul', 'status-break-cases' + (flat ? ' flat' : ''));
+      list.slice().sort(function (a, b) { return (+a.id || 0) - (+b.id || 0); }).forEach(function (testCase) {
+        var li = D.el('li'), a = D.el('a', null, '#' + testCase.id); a.href = D.wiUrl(testCase.id); a.target = '_blank'; a.rel = 'noopener';
+        li.appendChild(a); li.appendChild(D.el('span', 'status-break-case-title', testCase.title || ''));
+        var extra = detailFn ? detailFn(testCase) : ''; if (extra) li.appendChild(D.el('span', 'status-break-case-extra', extra));
+        ul.appendChild(li);
+      });
+      return ul;
     }
     keys.forEach(function (key) {
       var group = groups[key], statusId = scope + '|' + key, details = D.el('details', 'status-break-item'), summary = D.el('summary');
@@ -2375,10 +2387,11 @@
       var dot = D.el('span', 'status-break-dot'); dot.style.background = colorFn(key); summary.appendChild(dot);
       summary.appendChild(D.el('span', 'status-break-name', key));
       summary.appendChild(D.el('span', 'status-break-count', group.count + ' · ' + D.percent(total ? group.count * 100 / total : 0)));
-      var mini = D.el('span', 'status-break-mini');
+      var mini = D.el('span', 'status-break-mini' + (flat ? ' hide' : ''));
       group.racks.forEach(function (list, i) { var seg = D.el('i'); seg.style.flexGrow = String(list.length); seg.style.background = colorFn(key); seg.style.opacity = String(0.45 + 0.55 * (i % 2 ? 0.6 : 1)); seg.title = phaseRacks[i].label + ': ' + list.length; if (list.length) mini.appendChild(seg); });
       summary.appendChild(mini);
       details.appendChild(summary); remember(details, statusId);
+      if (flat) { var flatBody = D.el('div', 'status-break-racks flat'); flatBody.appendChild(caseList(group.racks[0] || [])); details.appendChild(flatBody); wrap.appendChild(details); return; }
       var body = D.el('div', 'status-break-racks'), maxRack = Math.max.apply(null, group.racks.map(function (list) { return list.length; }).concat([1]));
       group.racks.forEach(function (list, i) {
         var rack = phaseRacks[i], rackId = statusId + '|' + rack.label, rd = D.el(list.length ? 'details' : 'div', 'status-break-rack' + (list.length ? '' : ' is-empty')), rs = D.el(list.length ? 'summary' : 'div', 'status-break-rack-row');
@@ -2388,20 +2401,13 @@
         rd.appendChild(rs);
         if (list.length) {
           remember(rd, rackId);
-          var ul = D.el('ul', 'status-break-cases');
-          list.slice().sort(function (a, b) { return (+a.id || 0) - (+b.id || 0); }).forEach(function (testCase) {
-            var li = D.el('li'), a = D.el('a', null, '#' + testCase.id); a.href = D.wiUrl(testCase.id); a.target = '_blank'; a.rel = 'noopener';
-            li.appendChild(a); li.appendChild(D.el('span', 'status-break-case-title', testCase.title || ''));
-            var extra = detailFn ? detailFn(testCase) : ''; if (extra) li.appendChild(D.el('span', 'status-break-case-extra', extra));
-            ul.appendChild(li);
-          });
-          rd.appendChild(ul);
+          rd.appendChild(caseList(list));
         }
         body.appendChild(rd);
       });
       details.appendChild(body); wrap.appendChild(details);
     });
-    expand.addEventListener('click', function () { Array.prototype.forEach.call(wrap.querySelectorAll('details.status-break-item'), function (d) { d.open = true; }); });
+    expand.addEventListener('click', function () { Array.prototype.forEach.call(wrap.querySelectorAll('details'), function (d) { d.open = true; }); });
     collapse.addEventListener('click', function () { Array.prototype.forEach.call(wrap.querySelectorAll('details'), function (d) { d.open = false; }); });
     return wrap;
   };
@@ -2428,6 +2434,7 @@
     + "\n.status-break-racks{padding:2px 10px 8px 28px}.status-break-rack-row{display:grid;grid-template-columns:70px 1fr 36px;align-items:center;gap:10px;padding:4px 0;cursor:pointer;list-style:none;font-size:12px;color:#cbd5e1}.status-break-rack-row::-webkit-details-marker{display:none}.status-break-rack.is-empty>.status-break-rack-row{cursor:default;color:#5f7391}.status-break-rack[open]>.status-break-rack-row{color:#fff;font-weight:600}"
     + "\n.status-break-bar{height:8px;background:#16243d;border-radius:4px;overflow:hidden}.status-break-bar i{display:block;height:100%;border-radius:4px}.status-break-rack-count{text-align:right;font-weight:700}"
     + "\n.status-break-cases{margin:2px 0 6px 0;padding:0 0 0 80px;list-style:none;font-size:12px;max-height:220px;overflow:auto}.status-break-cases li{display:flex;gap:8px;padding:2px 0;border-bottom:1px dashed #1c2942}.status-break-cases a{color:#93c5fd;white-space:nowrap}.status-break-case-title{color:#cbd5e1;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status-break-case-extra{color:#8fa3c0;white-space:nowrap}"
+    + "\n.status-break-mini.hide{display:none}.status-break-racks.flat{padding:2px 10px 8px 28px}.status-break-cases.flat{padding-left:0;max-height:320px}"
     + "\n@media(max-width:620px){.status-break-mini{display:none}.status-break-cases{padding-left:10px}}";
   D.buildPanels = function () {
     D.updateIdentity();
@@ -2501,12 +2508,14 @@
         var rb1 = D.box(def.rack.label + ' State distribution');
         refs.chartHost = D.el('div', 'chartwrap'); rb1.appendChild(refs.chartHost);
         refs.legendHost = D.el('div'); rb1.appendChild(refs.legendHost);
+        refs.stateBreakHost = D.el('div'); rb1.appendChild(refs.stateBreakHost);
         var rb2 = D.box('State summary table');
         refs.tableBox = D.el('div'); rb2.appendChild(refs.tableBox);
         g.appendChild(rb1); g.appendChild(rb2); panel.appendChild(g);
         var outcomeBox = D.box(def.rack.label + ' Test Result Outcome distribution');
         refs.outcomeHost = D.el('div', 'chartwrap'); outcomeBox.appendChild(refs.outcomeHost);
         refs.outcomeLegendHost = D.el('div'); outcomeBox.appendChild(refs.outcomeLegendHost);
+        refs.outcomeBreakHost = D.el('div'); outcomeBox.appendChild(refs.outcomeBreakHost);
         var outcomeTableBox = D.box(def.rack.label + ' Outcome summary');
         refs.outcomeTableBox = D.el('div'); outcomeTableBox.appendChild(refs.outcomeTableBox);
         var outcomeGrid = D.el('div', 'grid'); outcomeGrid.appendChild(outcomeBox); outcomeGrid.appendChild(outcomeTableBox); panel.appendChild(outcomeGrid);
@@ -2627,9 +2636,19 @@
         p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable([p.rack], bugInventory));
         D.drawInto(p.chartHost, c2);
         p.legendHost.innerHTML = ''; p.legendHost.appendChild(D.legend(c2));
+        var rackScopeKey = 'rack:' + (p.rack.id || p.rack.label);
+        p.stateBreakHost.innerHTML = '';
+        p.stateBreakHost.appendChild(D.statusRackBreakdown(rackScopeKey + ':state', [p.rack], function (c) { return c.state; }, D.orderStates, D.colorFor, function (c) {
+          return rackResultReady ? 'Outcome: ' + D.resultOutcomeKey(D.caseOutcome(c) && D.caseOutcome(c).outcome) : '';
+        }, { flat: true }));
+        D.linkChartToBreakdown([p.chartHost, p.legendHost], p.stateBreakHost);
         var rackOutcomeCounts = rackResultReady ? rackResultOutcomes.counts : { Active: fc.length };
         p.outcomeHost.innerHTML = ''; p.outcomeHost.appendChild(D.pie(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor));
         p.outcomeLegendHost.innerHTML = ''; p.outcomeLegendHost.appendChild(D.legend(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor));
+        p.outcomeBreakHost.innerHTML = '';
+        if (rackResultReady) p.outcomeBreakHost.appendChild(D.statusRackBreakdown(rackScopeKey + ':outcome', [p.rack], function (c) { var o = D.caseOutcome(c); return D.resultOutcomeKey(o && o.outcome); }, D.orderOutcomes, D.outcomeColor, function (c) { return 'State: ' + (c.state || '-'); }, { flat: true }));
+        else p.outcomeBreakHost.appendChild(D.el('div', 'small status-break', 'Case list appears after Test Point outcomes load …'));
+        D.linkChartToBreakdown([p.outcomeHost, p.outcomeLegendHost], p.outcomeBreakHost);
         p.outcomeTableBox.innerHTML = ''; p.outcomeTableBox.appendChild(D.statsTable(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor, 'Outcome'));
       }
     });
