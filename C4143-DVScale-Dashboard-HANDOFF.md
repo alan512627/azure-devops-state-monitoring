@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.16，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.17，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1404,3 +1404,11 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 ## 74. 2026-11-08 Log owner 改名為 Log reviewer（v1.13.16）
 
 - 依使用者要求，分類標題列標籤由 `Log owner:` 改為 `Log reviewer:`；`D.TEST_CATEGORIES` 欄位 `owner` → `reviewer`，`D.categoryOwner` → `D.categoryReviewer`。人員對應不變（見第 73 節）。README、extension README 與 `tests/test-categories.test.cjs` 同步。
+
+## 75. 2026-11-08 Bug List 匯出 CSV／Excel／PDF（v1.13.17）
+
+- Bug 表工具列右側新增 `Download CSV`、`Download Excel`、`Download PDF`，皆匯出**目前篩選（State、搜尋）與排序**後的 Bug；檔名 `<Query>-Bug-List-YYYYMMDD.<ext>`。
+- 欄位（`D.BUG_EXPORT_HEADERS`）：Bug ID、Title、State、Reason、Severity、Priority、Assigned To、Created By、Created、Changed、Linked Cases（Rack · Case）、Tags、Area Path、URL。
+- Excel 沿用 `D.xlsxWorkbook`：`Bugs` 工作表（ID、URL 為超連結）＋ `Summary` 工作表（Query、產生時間、篩選、數量、Open 數、State／Severity 分佈）。
+- PDF：userscript 無外部函式庫，因此以隱藏 iframe 產生 A4 橫向列印頁（標題與篩選說明、Total／Open／Resolved／Closed 卡、依匯出範圍重算的 State 圓餅與 Severity 長條、Bug 表），呼叫瀏覽器列印，使用者於目的地選「另存為 PDF」；iframe 列印失敗時改開新視窗列印。
+- 新增 `tests/bug-export.test.cjs`。

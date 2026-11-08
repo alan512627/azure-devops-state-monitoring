@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.16
+// @version      1.13.17
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2295,6 +2295,73 @@
     if (v.indexOf('4') === 0 || v.indexOf('low') >= 0) return '#34d399';
     return '#94a3b8';
   };
+  // Bug List exports (current filter and sort): CSV, Excel (.xlsx) and a print-ready PDF.
+  D.BUG_EXPORT_HEADERS = ['Bug ID', 'Title', 'State', 'Reason', 'Severity', 'Priority', 'Assigned To', 'Created By', 'Created', 'Changed', 'Linked Cases (Rack · Case)', 'Tags', 'Area Path', 'URL'];
+  D.bugExportRow = function (bug, caseLinks) {
+    return [bug.id, bug.title, bug.state, bug.reason, bug.severity, bug.priority, bug.assignedTo && bug.assignedTo !== '-' ? bug.assignedTo : 'Unassigned', bug.createdBy && bug.createdBy !== '-' ? bug.createdBy : '',
+      D.fmt(bug.created), D.fmt(bug.changed), (caseLinks || []).map(function (l) { return l.rack + ' · #' + l.caseId; }).join('; '), bug.tags, bug.area, bug.url];
+  };
+  D.bugExportName = function (ext) { return D.reportPrefix() + '-Bug-List-' + D.reportStamp() + '.' + ext; };
+  D.bugFilterLabel = function () {
+    var st = D.S.bugFilterState || '__all', q = String(D.S.bugFilterText || '').trim();
+    return (st === '__all' ? 'All states' : st === '__open' ? 'Open only' : 'State = ' + st) + (q ? ' · search "' + q + '"' : '');
+  };
+  D.exportBugCsv = function (visible) {
+    var lines = [D.BUG_EXPORT_HEADERS.map(D.csvValue).join(',')];
+    visible.forEach(function (v) { lines.push(D.bugExportRow(v.bug, v.links).map(D.csvValue).join(',')); });
+    D.downloadBlob('﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8', D.bugExportName('csv'));
+    D.setStatus('Downloaded Bug List CSV with ' + visible.length + ' Bug(s) (' + D.bugFilterLabel() + ').', 'info');
+  };
+  D.exportBugExcel = function (visible, all) {
+    var rows = visible.map(function (v) { var r = D.bugExportRow(v.bug, v.links); r[0] = { value: v.bug.id, href: v.bug.url }; r[13] = { value: v.bug.url, href: v.bug.url }; return r; });
+    function countBy(list, fn, order) { var m = {}; list.forEach(function (b) { var k = fn(b) || 'Not set'; m[k] = (m[k] || 0) + 1; }); return (order ? order(Object.keys(m)) : Object.keys(m).sort()).map(function (k) { return [k, m[k]]; }); }
+    var bugs = visible.map(function (v) { return v.bug; }), summary = [
+      ['Query', D.queryExtras() && D.queryExtras().bugQuery ? D.queryExtras().bugQuery.name : ''], ['Generated', D.fmt(new Date().toISOString())], ['Filter', D.bugFilterLabel()],
+      ['Bugs in export', bugs.length], ['Bugs in query', all.length], ['Open', bugs.filter(D.bugIsOpen).length], ['', '']
+    ].concat([['State', 'Count']]).concat(countBy(bugs, function (b) { return b.state; }, D.orderBugStates)).concat([['', ''], ['Severity', 'Count']]).concat(countBy(bugs, function (b) { return b.severity; }));
+    var bytes = D.xlsxWorkbook([
+      { name: 'Bugs', headers: D.BUG_EXPORT_HEADERS, rows: rows, widths: [70, 420, 90, 110, 110, 70, 160, 160, 120, 120, 260, 200, 220, 320] },
+      { name: 'Summary', headers: ['Item', 'Value'], rows: summary, widths: [160, 360] }
+    ]);
+    D.downloadBlob(bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', D.bugExportName('xlsx'));
+    D.setStatus('Downloaded Bug List Excel with ' + visible.length + ' Bug(s) (' + D.bugFilterLabel() + ').', 'info');
+  };
+  D.exportBugPdf = function (visible, charts) {
+    var esc = D.xmlEsc, bugs = visible.map(function (v) { return v.bug; });
+    var open = bugs.filter(D.bugIsOpen).length, resolved = bugs.filter(function (b) { return /^resolved$/i.test(b.state); }).length, closed = bugs.filter(function (b) { return /^(closed|done)$/i.test(b.state); }).length;
+    var query = D.queryExtras() && D.queryExtras().bugQuery;
+    var rowsHtml = visible.map(function (v) {
+      var b = v.bug;
+      return '<tr><td class="n"><a href="' + esc(b.url) + '">' + esc(b.id) + '</a></td><td>' + esc(b.title) + '</td>'
+        + '<td><span class="chip" style="background:' + D.bugStateColor(b.state || 'Unknown') + '">' + esc(b.state || 'Unknown') + '</span></td>'
+        + '<td>' + (b.severity ? '<span class="chip" style="background:' + D.severityColor(b.severity) + '">' + esc(b.severity) + '</span>' : '-') + '</td>'
+        + '<td class="n">' + esc(b.priority || '-') + '</td><td>' + esc(b.assignedTo && b.assignedTo !== '-' ? b.assignedTo : 'Unassigned') + '</td>'
+        + '<td>' + esc(D.fmt(b.created)) + '</td><td>' + esc(D.fmt(b.changed)) + '</td>'
+        + '<td>' + esc((v.links || []).map(function (l) { return l.rack + ' · #' + l.caseId; }).join(', ') || '-') + '</td></tr>';
+    }).join('');
+    var css = '@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:"Segoe UI",Roboto,"Noto Sans TC","Microsoft JhengHei",sans-serif;color:#111827;font-size:10px;margin:0}'
+      + 'h1{font-size:18px;margin:0 0 2px}.meta{color:#4b5563;margin-bottom:10px}.cards{display:flex;gap:8px;margin-bottom:10px}.card{flex:1;border:1px solid #d1d5db;border-left:4px solid var(--c);border-radius:6px;padding:6px 10px}.card b{display:block;font-size:18px}.card span{color:#6b7280;font-size:9px;letter-spacing:.05em}'
+      + '.charts{display:flex;gap:12px;margin-bottom:10px;page-break-inside:avoid}.chart{flex:1;border:1px solid #d1d5db;border-radius:6px;padding:6px;background:#0f1a2e}.chart h3{margin:0 0 4px;font-size:11px;color:#e2e8f0}.chart svg{width:100%;height:210px}'
+      + '.legend{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:4px}.chip{display:inline-block;border-radius:999px;padding:1px 7px;font-weight:700;color:#0b1220;font-size:9px;white-space:nowrap}'
+      + 'table{width:100%;border-collapse:collapse;font-size:10px}th{background:#1f2937;color:#fff;text-align:left;padding:4px 5px;font-size:9px}td{border-bottom:1px solid #e5e7eb;padding:3px 5px;vertical-align:top}tr{page-break-inside:avoid}td.n{text-align:right;white-space:nowrap}a{color:#1d4ed8;text-decoration:none}thead{display:table-header-group}';
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(D.bugExportName('pdf').replace(/\.pdf$/, '')) + '</title><style>' + css + '</style></head><body>'
+      + '<h1>Bug List — ' + esc(query ? query.name : 'Bugs') + '</h1>'
+      + '<div class="meta">Generated ' + esc(D.fmt(new Date().toISOString())) + ' · ' + esc(D.bugFilterLabel()) + ' · ' + bugs.length + ' Bug(s)' + (D.S.bugList && D.S.bugList.loadedAt ? ' · data loaded ' + esc(D.fmt(D.S.bugList.loadedAt)) : '') + '</div>'
+      + '<div class="cards">' + [['TOTAL BUGS', bugs.length, '#fb923c'], ['OPEN', open, '#f87171'], ['RESOLVED', resolved, '#fbbf24'], ['CLOSED', closed, '#34d399']].map(function (c) { return '<div class="card" style="--c:' + c[2] + '"><span>' + c[0] + '</span><b>' + c[1] + '</b></div>'; }).join('') + '</div>'
+      + '<div class="charts">' + (charts || []).map(function (c) { return '<div class="chart"><h3>' + esc(c.title) + '</h3>' + c.html + '</div>'; }).join('') + '</div>'
+      + '<table><thead><tr><th>ID</th><th>Title</th><th>State</th><th>Severity</th><th>Priority</th><th>Assigned To</th><th>Created</th><th>Changed</th><th>Linked Cases</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="9">No Bugs match the filter.</td></tr>') + '</tbody></table>'
+      + '</body></html>';
+    var frame = D.el('iframe'); frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(frame);
+    var doc = frame.contentWindow.document; doc.open(); doc.write(html); doc.close();
+    var cleanup = function () { setTimeout(function () { frame.remove(); }, 1000); };
+    setTimeout(function () {
+      try { frame.contentWindow.focus(); frame.contentWindow.addEventListener('afterprint', cleanup); frame.contentWindow.print(); setTimeout(cleanup, 120000); }
+      catch (error) { cleanup(); var w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); w.focus(); w.print(); } }
+    }, 300);
+    D.setStatus('Opening the print dialog for the Bug List PDF (' + bugs.length + ' Bug(s)) — choose "Save as PDF" as the destination.', 'info');
+  };
   D.bugListView = function () {
     var wrap = D.el('div', 'extra-view'), list = D.S.bugList || { status: 'idle', items: [] }, extras = D.queryExtras();
     var head = D.el('div', 'extra-head'), h = D.el('h2', null, 'Bug List');
@@ -2328,8 +2395,20 @@
     var stateSel = D.el('select'), states = D.orderBugStates(Object.keys(stateCounts));
     [['__all', 'All states'], ['__open', 'Open only']].concat(states.map(function (s) { return [s, s]; })).forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; stateSel.appendChild(opt); });
     stateSel.value = D.S.bugFilterState || '__all';
-    var count = D.el('span', 'small');
-    toolbar.appendChild(search); toolbar.appendChild(stateSel); toolbar.appendChild(count); box.appendChild(toolbar);
+    var count = D.el('span', 'small'), visible = [];
+    var exportBox = D.el('span', 'bug-export'), csvBtn = D.el('button', null, 'Download CSV'), xlsxBtn = D.el('button', null, 'Download Excel'), pdfBtn = D.el('button', null, 'Download PDF');
+    csvBtn.title = 'Bugs in the current filter and sort order'; xlsxBtn.title = 'Bugs sheet (current filter and sort) + Summary sheet'; pdfBtn.title = 'Summary, charts and Bug table — opens the print dialog; choose "Save as PDF"';
+    csvBtn.addEventListener('click', function () { D.exportBugCsv(visible); });
+    xlsxBtn.addEventListener('click', function () { D.exportBugExcel(visible, items); });
+    pdfBtn.addEventListener('click', function () {
+      var shownStates = {}, shownSev = {};
+      visible.forEach(function (v) { var s = v.bug.state || 'Unknown'; shownStates[s] = (shownStates[s] || 0) + 1; var sv = v.bug.severity || 'Not set'; shownSev[sv] = (shownSev[sv] || 0) + 1; });
+      var pieHost = D.el('div'); pieHost.appendChild(D.pie(shownStates, D.orderBugStates, D.bugStateColor, 'bugs')); pieHost.appendChild(D.legend(shownStates, D.orderBugStates, D.bugStateColor));
+      var barHost = D.el('div'); barHost.appendChild(D.bar(shownSev, sevOrder, D.severityColor)); barHost.appendChild(D.legend(shownSev, sevOrder, D.severityColor));
+      D.exportBugPdf(visible, [{ title: 'Bug state distribution', html: pieHost.innerHTML }, { title: 'Bug severity', html: barHost.innerHTML }]);
+    });
+    exportBox.appendChild(csvBtn); exportBox.appendChild(xlsxBtn); exportBox.appendChild(pdfBtn);
+    toolbar.appendChild(search); toolbar.appendChild(stateSel); toolbar.appendChild(count); toolbar.appendChild(exportBox); box.appendChild(toolbar);
     var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'bug-list-table'), thead = D.el('thead'), hr = D.el('tr');
     var cols = [['id', 'ID'], ['title', 'Title'], ['state', 'State'], ['severity', 'Severity'], ['priority', 'Priority'], ['assignedTo', 'Assigned To'], ['created', 'Created'], ['changed', 'Changed'], ['cases', 'Linked Cases (Rack · Case)']];
     var sort = D.S.bugSort || { key: 'id', dir: -1 };
@@ -2348,14 +2427,14 @@
     function draw() {
       var q = search.value.trim().toLowerCase(), st = stateSel.value, shown = 0;
       D.S.bugFilterText = search.value; D.S.bugFilterState = st;
-      tbody.innerHTML = '';
+      tbody.innerHTML = ''; visible = [];
       sorted.forEach(function (bug) {
         if (st === '__open' && !D.bugIsOpen(bug)) return;
         if (st !== '__all' && st !== '__open' && bug.state !== st) return;
         var caseLinks = links[String(bug.id)] || [];
         var hay = [bug.id, bug.title, bug.state, bug.severity, bug.priority, bug.assignedTo, bug.tags, bug.area].concat(caseLinks.map(function (l) { return l.caseId + ' ' + l.rack + ' ' + l.title; })).join(' ').toLowerCase();
         if (q && hay.indexOf(q) < 0) return;
-        shown++;
+        shown++; visible.push({ bug: bug, links: caseLinks });
         var tr = D.el('tr'), idCell = D.el('td', 'num'), a = D.el('a', null, String(bug.id)); a.href = bug.url; a.target = '_blank'; a.rel = 'noopener'; idCell.appendChild(a); tr.appendChild(idCell);
         var titleCell = D.el('td', 'bug-title', bug.title); if (bug.tags) titleCell.title = 'Tags: ' + bug.tags; tr.appendChild(titleCell);
         var stCell = D.el('td'), stChip = D.el('span', 'chip', bug.state || 'Unknown'); stChip.style.background = D.bugStateColor(bug.state || 'Unknown'); stCell.appendChild(stChip); tr.appendChild(stCell);
@@ -2440,7 +2519,7 @@
   D.CSS += "\n.phase-tab[data-view='bugs']{--phase-accent:#fb923c}.phase-tab[data-view='portal']{--phase-accent:#34d399}.phase-tab.extra-tab{flex:0 1 220px}.phase-tab.portal-sep{margin-left:auto}@media(max-width:620px){.phase-tab.portal-sep{margin-left:0}}"
     + "\n.extra-view{padding:16px 20px 28px;min-width:0}.extra-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px}.extra-head h2{margin:0;font-size:20px;color:#e2e8f0}.extra-head a{color:#93c5fd}.extra-head button{margin-left:auto}"
     + "\n.bug-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}.bug-toolbar input{flex:1 1 280px;min-width:200px;padding:7px 10px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.bug-toolbar select{min-width:160px}"
-    + "\n.bug-list-table{min-width:1180px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{display:inline-block;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
+    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1180px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{display:inline-block;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
     + "\n.portal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.portal-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:#111d33;border:1px solid #253858;border-left:4px solid #34d399}.portal-card.unset{border-left-color:#fbbf24}"
     + "\n.portal-title{font-size:15px;font-weight:700;color:#e2e8f0}.portal-host{font-size:12px;color:#93c5fd;word-break:break-all}.portal-card.unset .portal-host{color:#fbbf24}.portal-actions{display:flex;gap:8px;margin-top:6px;align-items:center}.portal-actions button{width:auto}"
     + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";
