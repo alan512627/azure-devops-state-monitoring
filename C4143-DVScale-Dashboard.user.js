@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.8
+// @version      1.13.9
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2364,15 +2364,19 @@
     });
     return index;
   };
-  D.crossRackOutcomeChips = function (testCase, racks, index, ready) {
-    var wrap = D.el('span', 'xrack'), row = index[D.normalizedTitle(testCase.title)] || [];
+  // mode 'state' colours each Rack chip by that Case's Work Item State; otherwise by its Test Point outcome.
+  D.crossRackOutcomeChips = function (testCase, racks, index, ready, mode) {
+    var wrap = D.el('span', 'xrack'), row = index[D.normalizedTitle(testCase.title)] || [], byState = mode === 'state';
     racks.forEach(function (rack, i) {
       var other = row[i], label = 'R' + (D.rackNumber(rack) || (i + 1)), outcome = other && ready ? D.resultOutcomeKey(D.caseOutcome(other) && D.caseOutcome(other).outcome) : '';
       var chip = D.el(other ? 'a' : 'span', 'xrack-chip' + (other === testCase ? ' current' : '') + (other ? '' : ' missing'), label);
       if (other) {
         chip.href = D.wiUrl(other.id); chip.target = '_blank'; chip.rel = 'noopener';
-        if (outcome) chip.style.background = D.outcomeColor(outcome);
-        chip.title = rack.label + ' · #' + other.id + ' · ' + (outcome || 'Outcome loading …') + ' · State: ' + (other.state || '-');
+        if (byState) chip.style.background = D.colorFor(other.state || '');
+        else if (outcome) chip.style.background = D.outcomeColor(outcome);
+        chip.title = byState
+          ? rack.label + ' · #' + other.id + ' · State: ' + (other.state || '-') + (outcome ? ' · Outcome: ' + outcome : '')
+          : rack.label + ' · #' + other.id + ' · ' + (outcome || 'Outcome loading …') + ' · State: ' + (other.state || '-');
       } else chip.title = rack.label + ' · no matching Case';
       wrap.appendChild(chip);
     });
@@ -2392,7 +2396,7 @@
     var keys = orderFn(Object.keys(groups));
     if (!keys.length) return wrap;
     var tools = D.el('div', 'status-break-tools'), expand = D.el('button', null, 'Expand all'), collapse = D.el('button', null, 'Collapse all');
-    tools.appendChild(D.el('span', 'small', (flat ? 'Cases by status' : 'Rack breakdown by status') + ' · R1–R5 = the same Case\'s Test Point outcome on each Rack (white outline = this Case) · click a chart slice or legend chip to jump here')); tools.appendChild(expand); tools.appendChild(collapse); wrap.appendChild(tools);
+    tools.appendChild(D.el('span', 'small', (flat ? 'Cases by status' : 'Rack breakdown by status') + ' · R1–R5 = the same Case\'s ' + (options.chipMode === 'state' ? 'State' : 'Test Point outcome') + ' on each Rack (white outline = this Case) · click a chart slice or legend chip to jump here')); tools.appendChild(expand); tools.appendChild(collapse); wrap.appendChild(tools);
     function remember(details, id) {
       details.open = !!D.S.breakdownOpen[id];
       details.addEventListener('toggle', function () { if (details.open) D.S.breakdownOpen[id] = 1; else delete D.S.breakdownOpen[id]; });
@@ -2456,7 +2460,7 @@
     });
   };
   D.CSS += "\n.chartwrap svg text{pointer-events:none}.chartwrap [data-status],.legend .chip[data-status]{cursor:pointer}.chartwrap path[data-status]:hover,.chartwrap circle[data-status]:hover,.chartwrap rect[data-status]:hover{filter:brightness(1.15)}.status-break-flash{animation:statusBreakFlash 1.4s ease-out}@keyframes statusBreakFlash{0%{box-shadow:0 0 0 3px #fbbf24}100%{box-shadow:0 0 0 0 transparent}}";
-  D.CSS += "\n.status-break{margin-top:12px;border-top:1px solid #1e2b45;padding-top:10px}.status-break-tools{display:flex;align-items:center;gap:8px;margin:0 0 6px}.status-break-tools .small{margin-right:auto}.status-break-tools button{width:auto;padding:3px 10px;font-size:11px}"
+  D.CSS += "\n.status-break{margin-top:12px;border-top:1px solid #1e2b45;padding-top:10px}.status-break-tools{display:flex;align-items:center;gap:8px;margin:0 0 6px}.status-break-tools .small{margin-right:auto}.status-break-tools button{width:auto;padding:3px 10px;font-size:11px;white-space:nowrap;flex:0 0 auto}"
     + "\n.status-break-item{border:1px solid #1e2b45;border-radius:8px;margin:0 0 6px;background:#0f1a2e}.status-break-item>summary{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;list-style:none;font-size:13px;color:#e2e8f0}.status-break-item>summary::-webkit-details-marker{display:none}"
     + "\n.status-break-item>summary::before{content:'▸';color:#8fa3c0;font-size:11px;width:10px;transition:transform .15s}.status-break-item[open]>summary::before{transform:rotate(90deg)}"
     + "\n.status-break-dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}.status-break-name{font-weight:700}.status-break-count{color:#9fb3d0;font-size:12px;white-space:nowrap}.status-break-mini{display:flex;gap:2px;margin-left:auto;width:120px;height:6px}.status-break-mini i{display:block;height:100%;border-radius:2px;min-width:3px}"
@@ -2623,7 +2627,8 @@
         p.legendHost.innerHTML = ''; p.legendHost.appendChild(D.legend(counts));
         p.stateBreakHost.innerHTML = '';
         var crossIndex = D.crossRackIndex(phaseRacks), crossChips = function (c) { return D.crossRackOutcomeChips(c, phaseRacks, crossIndex, resultReady); };
-        p.stateBreakHost.appendChild(D.statusRackBreakdown('state', phaseRacks, function (c) { return c.state; }, D.orderStates, D.colorFor, crossChips));
+        var crossStateChips = function (c) { return D.crossRackOutcomeChips(c, phaseRacks, crossIndex, resultReady, 'state'); };
+        p.stateBreakHost.appendChild(D.statusRackBreakdown('state', phaseRacks, function (c) { return c.state; }, D.orderStates, D.colorFor, crossStateChips, { chipMode: 'state' }));
         D.linkChartToBreakdown([p.chartHost, p.legendHost], p.stateBreakHost);
         var stateSet = {};
         var perRack = phaseRacks.map(function (r) { var m = D.countStates(D.collect(r, 'Test Case').filter(D.inRange)); for (var k in m) stateSet[k] = 1; return m; });
@@ -2668,7 +2673,8 @@
         var rackScopeKey = 'rack:' + (p.rack.id || p.rack.label);
         p.stateBreakHost.innerHTML = '';
         var rackPeers = D.phaseRacks(), rackCrossIndex = D.crossRackIndex(rackPeers), rackCrossChips = function (c) { return D.crossRackOutcomeChips(c, rackPeers, rackCrossIndex, rackResultReady); };
-        p.stateBreakHost.appendChild(D.statusRackBreakdown(rackScopeKey + ':state', [p.rack], function (c) { return c.state; }, D.orderStates, D.colorFor, rackCrossChips, { flat: true }));
+        var rackCrossStateChips = function (c) { return D.crossRackOutcomeChips(c, rackPeers, rackCrossIndex, rackResultReady, 'state'); };
+        p.stateBreakHost.appendChild(D.statusRackBreakdown(rackScopeKey + ':state', [p.rack], function (c) { return c.state; }, D.orderStates, D.colorFor, rackCrossStateChips, { flat: true, chipMode: 'state' }));
         D.linkChartToBreakdown([p.chartHost, p.legendHost], p.stateBreakHost);
         var rackOutcomeCounts = rackResultReady ? rackResultOutcomes.counts : { Active: fc.length };
         p.outcomeHost.innerHTML = ''; p.outcomeHost.appendChild(D.pie(rackOutcomeCounts, D.orderOutcomes, D.outcomeColor));

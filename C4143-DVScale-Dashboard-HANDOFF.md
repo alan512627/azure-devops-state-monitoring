@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.8，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.9，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1338,3 +1338,8 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 
 - 依使用者需求，status 清單中每個 Case 原本附的 `State:`／`Outcome:` 文字改為 `R1`–`R5` 色塊：同一 Phase 內以標題（`D.normalizedTitle`）對應各 Rack 的同名 Case，色塊顏色為該 Rack Case 的 Execute Test Point Outcome（五色同 Outcome 圓餅），白框標示目前這一筆；該 Rack 沒有同名 Case 時顯示虛線空框。滑過色塊顯示 Rack、Case ID、Outcome、State，點擊開啟該 Case；Case 的 State 改放在該列 tooltip。
 - 套用於 Overview 與各 Rack 分頁的 State／Outcome 清單。新增 `D.crossRackIndex`、`D.crossRackOutcomeChips` 與 `tests/cross-rack-outcome.test.cjs`。
+
+## 67. 2026-11-08 State 清單的 R1–R5 改顯示各 Rack 的 State（v1.13.9）
+
+- `D.crossRackOutcomeChips(..., mode)` 新增 `mode`：State 圓餅下方的清單用 `'state'`，色塊顏色為各 Rack 同名 Case 的 Work Item State（`D.colorFor`），tooltip 顯示 State 並附 Outcome；Outcome 圓餅下方的清單維持顯示 Test Point Outcome。Overview 與 Rack 分頁皆同。清單說明文字隨模式切換。
+- `Expand all`／`Collapse all` 按鈕不換行。
