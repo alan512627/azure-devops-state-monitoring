@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.17
+// @version      1.13.18
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -1515,6 +1515,9 @@
   D.CSS += "\n.suite-intro{margin:0 0 12px;color:#9fb3d0;font-size:12px}\n.suite-toolbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;width:min(980px,100%);margin-bottom:14px}\n.suite-toolbar>*{width:100%;min-width:0}\n.feature-groups{display:grid;gap:8px}\ndetails.feature-group{min-width:0;border:1px solid #253858;border-radius:9px;background:#0f1a2e;overflow:hidden}\ndetails.feature-group[open]{border-color:#35618f;background:#101d33}\n.feature-summary{display:flex;align-items:center;gap:8px;padding:11px 13px;cursor:pointer;list-style:none}\n.feature-summary::-webkit-details-marker{display:none}\n.feature-summary:before{content:'\\25B8';color:#7dd3fc;transition:transform .15s}\ndetails.feature-group[open]>.feature-summary:before{transform:rotate(90deg)}\n.feature-summary:hover{background:#152744}\n.feature-group-name{color:#e0f2fe;font-size:15px;font-weight:700}\n.suite-pill{display:inline-flex;padding:2px 8px;border-radius:999px;background:#193657;color:#bae6fd;border:1px solid #2d527d;font-size:11px;font-weight:700}\n.feature-group-body{padding:0 12px 12px 28px}\n.feature-table-scroll{max-width:100%;overflow:auto;border:1px solid #1c2942;border-radius:7px}\ntable.feature-table{min-width:1480px;background:#0c1729}\n.feature-table th{position:sticky;top:0;background:#132039;z-index:1}\n.feature-table td{vertical-align:top;line-height:1.4}\n.feature-table .feature-id{width:86px;font-family:Consolas,monospace}\n.feature-table .feature-title{min-width:420px;color:#d7e3f4}\n.feature-table .feature-owner{min-width:150px}\n.feature-table .feature-comments{min-width:240px;max-width:420px;white-space:normal;overflow-wrap:anywhere}\n.feature-case-row{border-left:3px solid transparent}\n.feature-case-row:hover{background:#152341}\n.feature-bugs{min-width:160px}\n.feature-bugs .bug-link{margin:1px 4px 1px 0}\n@media(max-width:720px){.suite-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.suite-toolbar>input{grid-column:1/-1}.feature-group-body{padding-left:10px}.feature-summary{padding:12px 10px}}";
   D.CSS += "\n.dashboard-main{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:start;min-width:0}\n#panels{min-width:0}\n.tabs{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:center;gap:4px;width:64px;min-width:64px;padding:10px 6px 60px 8px}\n.tab{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:50px;min-width:50px;max-width:50px;min-height:72px;height:auto;padding:8px 5px;border:1px solid #1e2b45;border-radius:6px;background:#111d33;color:#9fb3d0;writing-mode:vertical-rl;text-orientation:mixed;white-space:nowrap;font-size:11px;line-height:1.1}\n.tab.active{background:#16243d;color:#fff;font-weight:600;box-shadow:inset 3px 0 0 #38bdf8}\n.panel{min-width:0;padding:16px 20px 60px 14px}\n@media(max-width:720px){.dashboard-main{grid-template-columns:54px minmax(0,1fr)}.tabs{width:54px;min-width:54px;padding:8px 4px 40px}.tab{width:44px;min-width:44px;max-width:44px;min-height:66px;padding:7px 4px;font-size:10px}.panel{padding:12px 10px 50px 8px}}";
   D.CSS += "\n:root{--dvdash-controls-height:52px}\n.tabs{position:sticky;top:calc(var(--dvdash-controls-height) + 8px);align-self:start;z-index:12;max-height:calc(100vh - var(--dvdash-controls-height) - 16px);overflow-y:auto;scrollbar-width:thin}\n.panel-sticky,.suite-sticky{position:sticky;top:var(--dvdash-controls-height);z-index:11;background:#0b1220;padding-top:8px;padding-bottom:12px;box-shadow:0 12px 18px rgba(3,8,18,.42)}\n.panel-sticky>.cards,.suite-sticky>.cards{margin-bottom:0}\n@media(max-width:980px), (max-height:700px){.panel-sticky,.suite-sticky{position:static;box-shadow:none;padding-top:0}}\n@media(max-width:720px){.tabs{top:calc(var(--dvdash-controls-height) + 6px);max-height:calc(100vh - var(--dvdash-controls-height) - 12px)}}";
+  D.CSS += "\n.dvdash-top{position:sticky;top:0;z-index:30;background:#0b1220;box-shadow:0 6px 14px rgba(3,8,18,.45)}.dvdash-top header,.dvdash-top .controls{position:static}"
+    + "\n.panel-sticky,.suite-sticky{z-index:25}"
+    + "\n@media(max-height:560px){.dvdash-top{position:static;box-shadow:none}}";
   D.CSS += "\n.insights-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:4px 0 14px}.trend-scroll{max-width:100%;overflow-x:auto}.trend-scroll>svg{min-width:720px}.trend-table-details,.change-group{margin-top:10px;border-top:1px solid #1c2942;padding-top:6px}.trend-table-details>summary,.change-group>summary{cursor:pointer;color:#7dd3fc;font-size:12px;font-weight:600;min-height:32px;display:flex;align-items:center}.table-scroll{max-width:100%;overflow:auto}.table-scroll>table{min-width:760px}.change-list{display:grid;gap:5px;padding:5px 0}.change-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:7px 8px;border:1px solid #1c2942;border-radius:7px;background:#0f1a2e}.change-title{flex:1;min-width:220px;color:#d7e3f4}.change-state{font-size:11px;color:#f8d4a2;font-weight:700}.result-link{white-space:nowrap}@media(max-width:720px){.insights-toolbar>*{width:100%}.trend-scroll>svg{min-width:660px}.change-title{min-width:150px}}";
   D.CSS += "\n.query-control{display:inline-flex;gap:6px;align-items:center}.query-control select{min-width:260px;max-width:420px}.query-modal-backdrop{position:fixed;inset:0;z-index:200;background:rgba(3,8,18,.78);display:flex;align-items:center;justify-content:center;padding:20px}.query-modal{width:min(760px,100%);max-height:calc(100vh - 40px);overflow:auto;background:#101b30;border:1px solid #35527a;border-radius:12px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.58)}.query-modal-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.query-modal h2{margin:0;font-size:18px}.query-form{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(300px,1.6fr) auto;gap:10px;align-items:end;padding:12px;border:1px solid #253858;border-radius:9px;background:#0c1729}.query-form label{display:grid;gap:5px;color:#9fb3d0;font-size:11px}.query-form input{width:100%;min-width:0}.query-help{margin:8px 0 12px;color:#8fa3c0;font-size:11px}.query-list{display:grid;gap:7px}.query-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border:1px solid #253858;border-radius:8px;background:#0f1a2e}.query-list-name{font-weight:700;color:#dbeafe;overflow-wrap:anywhere}.query-list-meta{margin-top:3px;color:#8fa3c0;font-size:11px;overflow-wrap:anywhere}.query-error{min-height:18px;margin-top:8px;color:#fda4af;font-size:12px}@media(max-width:900px){.query-control select{min-width:190px;max-width:300px}.query-form{grid-template-columns:1fr}.query-form button{width:100%}}@media(max-width:620px){.query-control{width:100%}.query-control select{flex:1;min-width:0;max-width:none}.query-modal-backdrop{padding:8px}.query-modal{max-height:calc(100vh - 16px);padding:12px}}";
   D.CSS += "\n@media(max-width:620px){.query-control label{flex:1;min-width:0}.query-control select{width:100%}}";
@@ -2012,8 +2015,9 @@
     tr2.appendChild(D.el('td', 'num', String(grand))); tb.appendChild(tr2); t.appendChild(tb); return t;
   };
   D.updateStickyOffset = function () {
-    var controls = document.querySelector('.controls');
-    if (controls) document.documentElement.style.setProperty('--dvdash-controls-height', Math.ceil(controls.getBoundingClientRect().height) + 'px');
+    var top = document.getElementById('dvdashTop'), controls = top || document.querySelector('.controls');
+    var pinned = top ? getComputedStyle(top).position === 'sticky' : true;
+    if (controls) document.documentElement.style.setProperty('--dvdash-controls-height', (pinned ? Math.ceil(controls.getBoundingClientRect().height) : 0) + 'px');
     requestAnimationFrame(D.fitCardValues);
   };
   D.installStickyOffset = function () {
@@ -2022,7 +2026,7 @@
     window.__dvdashStickyResize = D.updateStickyOffset; window.addEventListener('resize', window.__dvdashStickyResize);
     if (window.ResizeObserver) {
       window.__dvdashControlsObserver = new ResizeObserver(D.updateStickyOffset);
-      var controls = document.querySelector('.controls'); if (controls) window.__dvdashControlsObserver.observe(controls);
+      var controls = document.getElementById('dvdashTop') || document.querySelector('.controls'); if (controls) window.__dvdashControlsObserver.observe(controls);
     }
     D.updateStickyOffset(); requestAnimationFrame(D.updateStickyOffset);
   };
@@ -2118,6 +2122,8 @@
     var st = D.el('style'); st.textContent = D.CSS; document.head.appendChild(st);
     var mc = D.el('meta'); mc.setAttribute('charset', 'utf-8'); document.head.appendChild(mc);
 
+    // Title bar, controls and Phase / Bug List / Portal tabs stay pinned at the top; the summary cards pin below them.
+    var topBar = D.el('div', 'dvdash-top'); topBar.id = 'dvdashTop'; document.body.appendChild(topBar);
     var header = D.el('header');
     var left = D.el('div');
     var dashboardTitle = D.el('h1', null, D.activeQuery().name + ' — Test Status Dashboard'); dashboardTitle.id = 'dashboardTitle'; left.appendChild(dashboardTitle);
@@ -2131,7 +2137,7 @@
     var upd = D.el('span', 'sub', 'Updated: —'); upd.id = 'updated'; right.appendChild(upd);
     var rb = D.el('button', 'primary', 'Re-run query'); rb.id = 'reloadBtn'; right.appendChild(rb);
     var eb = D.el('button', null, 'Export offline snapshot .html'); eb.id = 'exportBtn'; right.appendChild(eb);
-    header.appendChild(right); document.body.appendChild(header);
+    header.appendChild(right); topBar.appendChild(header);
 
     var ctl = D.el('div', 'controls');
     var queryControl = D.el('span', 'query-control'), queryLabel = D.el('label', null, 'Query'), querySelect = D.el('select'); querySelect.id = 'querySel'; queryLabel.appendChild(querySelect);
@@ -2166,7 +2172,7 @@
     var tl = D.el('span', 'small colour-key'); tl.appendChild(document.createTextNode('Work item colours: '));
     ['Feature', 'System Requirement', 'Test Case'].forEach(function (type) { tl.appendChild(D.typeBadge(type)); });
     ctl.appendChild(tl);
-    document.body.appendChild(ctl); D.refreshQuerySelector();
+    topBar.appendChild(ctl); D.refreshQuerySelector();
     D.installStickyOffset();
 
     var phaseTabs = D.el('nav', 'phase-tabs'); phaseTabs.id = 'phaseTabs'; phaseTabs.setAttribute('role', 'tablist'); phaseTabs.setAttribute('aria-label', 'Test phase');
@@ -2178,7 +2184,7 @@
       var viewButton = D.el('button', 'phase-tab extra-tab', view[1]); viewButton.setAttribute('role', 'tab'); viewButton.setAttribute('data-view', view[0]);
       viewButton.addEventListener('click', function () { D.switchView(view[0]); }); phaseTabs.appendChild(viewButton);
     });
-    document.body.appendChild(phaseTabs); D.refreshPhaseTabs();
+    topBar.appendChild(phaseTabs); D.refreshPhaseTabs();
 
     var banner = D.el('div', 'banner info', 'Preparing to load…'); banner.id = 'banner'; document.body.appendChild(banner);
     var main = D.el('main', 'dashboard-main');
