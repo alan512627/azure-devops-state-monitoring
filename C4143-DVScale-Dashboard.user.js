@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.14
+// @version      1.13.15
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2570,18 +2570,19 @@
   // Test categories. `refs` are 1-based positions in D.CASE_TITLE_REFERENCE; live titles are matched to the closest
   // reference title first, then to the keyword rules (checked in this order), otherwise they fall into Other.
   D.TEST_CATEGORIES = [
-    { name: 'BIOS OpMode', refs: [5], keywords: [/\bbios\b/] },
-    { name: 'Enumeration', refs: [1, 2, 3, 4], keywords: [/enumerat/, /\bfru\b/] },
-    { name: 'FW update', refs: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], keywords: [/firmware update|fw update|\bfw\b.*\bupdate|update.*\b(fw|firmware|ifwi|bmc|cmc|omc|stos)\b|service config update/] },
-    { name: 'Power cycling', refs: [17, 18, 19, 20, 21, 22, 23, 24, 25], keywords: [/\b(ac|dc)\b.*cycle|warm reboot|\bpxe\b/] },
-    { name: 'Stress', refs: [26, 27], keywords: [/stress/] },
-    { name: 'Virtualization', refs: [28, 29, 30, 31, 32, 35], keywords: [/\bvms?\b|sr-?iov|virtual|guest os/] },
-    { name: 'MPF', refs: [33, 34], keywords: [/\bmpf\b/] },
-    { name: 'Performance', refs: [36, 37], keywords: [/diskspd|full-?duplex|performance|ntttcp|iostat/] },
-    { name: 'RSCM CLI', refs: [38, 39, 40, 41], keywords: [/r-?scm command to|show manager|powershelf|show system|set operations/] }
+    { name: 'BIOS OpMode', owner: '', refs: [5], keywords: [/\bbios\b/] },
+    { name: 'Enumeration', owner: 'Penny', refs: [1, 2, 3, 4], keywords: [/enumerat/, /\bfru\b/] },
+    { name: 'FW update', owner: 'Paul', refs: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], keywords: [/firmware update|fw update|\bfw\b.*\bupdate|update.*\b(fw|firmware|ifwi|bmc|cmc|omc|stos)\b|service config update/] },
+    { name: 'Power cycling', owner: 'Raymond', refs: [17, 18, 19, 20, 21, 22, 23, 24, 25], keywords: [/\b(ac|dc)\b.*cycle|warm reboot|\bpxe\b/] },
+    { name: 'Stress', owner: 'Rex', refs: [26, 27], keywords: [/stress/] },
+    { name: 'Virtualization', owner: 'Rex', refs: [28, 29, 30, 31, 32, 35], keywords: [/\bvms?\b|sr-?iov|virtual|guest os/] },
+    { name: 'MPF', owner: 'Youyu', refs: [33, 34], keywords: [/\bmpf\b/] },
+    { name: 'Performance', owner: 'Youyu', refs: [36, 37], keywords: [/diskspd|full-?duplex|performance|ntttcp|iostat/] },
+    { name: 'RSCM CLI', owner: 'Penny', refs: [38, 39, 40, 41], keywords: [/r-?scm command to|show manager|powershelf|show system|set operations/] }
   ];
   D.CATEGORY_KEYWORD_ORDER = ['BIOS OpMode', 'Enumeration', 'RSCM CLI', 'FW update', 'Power cycling', 'MPF', 'Virtualization', 'Performance', 'Stress'];
   D.CATEGORY_OTHER = 'Other';
+  D.categoryOwner = function (name) { var c = D.TEST_CATEGORIES.filter(function (x) { return x.name === name; })[0]; return c && c.owner || ''; };
   D.categoryNames = function () { return D.TEST_CATEGORIES.map(function (c) { return c.name; }).concat([D.CATEGORY_OTHER]); };
   D.caseCategory = function (title) {
     var key = D.normalizedTitle(title); D._categoryCache = D._categoryCache || {};
@@ -2683,6 +2684,8 @@
         hname.colSpan = 2 + racks.length;
         hname.appendChild(D.el('span', 'omatrix-cat-caret', collapsed ? '▸' : '▾'));
         hname.appendChild(document.createTextNode(row.header + ' '));
+        var owner = D.categoryOwner(row.header);
+        hname.appendChild(D.el('span', 'omatrix-cat-owner' + (owner ? '' : ' unset'), 'Log owner: ' + (owner || '—')));
         hname.appendChild(D.el('span', 'omatrix-cat-count', row.members.length + ' item' + (row.members.length === 1 ? '' : 's')));
         htr.appendChild(hname);
         var hdist = D.el('td', 'omatrix-distcell'); hdist.appendChild(distBar(row.counts, row.cells));
@@ -2733,7 +2736,7 @@
   D.CSS += "\n.omatrix-table{min-width:880px;font-size:12px}.omatrix-table th,.omatrix-table td{padding:3px 6px}.omatrix-idx{width:30px;color:#5f7391;text-align:right}.omatrix-title{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e2e8f0}.omatrix-rack{width:48px;text-align:center}"
     + "\n.omatrix-cell{display:inline-block;min-width:30px;padding:2px 0;border-radius:4px;text-align:center;font-weight:800;font-size:11px;color:#0b1220!important;text-decoration:none}.omatrix-cell.gap{background:transparent;border:1px dashed #33435f;color:#5f7391!important}.omatrix-cell.mini{min-width:22px;padding:0 3px;margin-left:8px}.omatrix-legend{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px}"
     + "\n.omatrix-distcell{min-width:220px}.omatrix-dist{display:inline-flex;width:130px;height:10px;border-radius:3px;overflow:hidden;background:#16243d;vertical-align:middle}.omatrix-dist i{display:block;height:100%}.omatrix-dist i.gap{background:repeating-linear-gradient(45deg,#33435f 0 3px,transparent 3px 6px)}.omatrix-distnum{margin-left:8px;color:#9fb3d0;white-space:nowrap}"
-    + "\n.omatrix-cat{cursor:pointer;background:#13213a}.omatrix-cat td{border-top:2px solid #253858;padding-top:6px!important;padding-bottom:6px!important}.omatrix-cat-name{font-weight:800;color:#e2e8f0;font-size:13px}.omatrix-cat-caret{display:inline-block;width:16px;color:#8fa3c0}.omatrix-cat-count{font-weight:400;color:#9fb3d0;font-size:11px}"
+    + "\n.omatrix-cat{cursor:pointer;background:#13213a}.omatrix-cat td{border-top:2px solid #253858;padding-top:6px!important;padding-bottom:6px!important}.omatrix-cat-name{font-weight:800;color:#e2e8f0;font-size:13px}.omatrix-cat-caret{display:inline-block;width:16px;color:#8fa3c0}.omatrix-cat-count{font-weight:400;color:#9fb3d0;font-size:11px}.omatrix-cat-owner{display:inline-block;margin:0 10px 0 4px;padding:1px 8px;border-radius:999px;background:#1e3a5f;color:#bfdbfe;font-size:11px;font-weight:700}.omatrix-cat-owner.unset{background:transparent;border:1px dashed #33435f;color:#5f7391}"
     + "\n.omatrix-table tbody tr:hover{background:#15233b}.omatrix-foot{border-top:2px solid #253858;font-weight:700;color:#cbd5e1}.omatrix-footnum{font-size:10px;color:#9fb3d0;margin-bottom:2px;white-space:nowrap}.omatrix-foot .omatrix-dist{width:100%;min-width:40px}.omatrix-distcell.omatrix-foot .omatrix-dist{width:130px}";
   D.buildPanels = function () {
     D.updateIdentity();

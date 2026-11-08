@@ -12,4 +12,6 @@ Object.keys(expected).forEach(name => expected[name].forEach(n => assert.strictE
 assert.strictEqual(D.categoryNames()[0], 'BIOS OpMode');
 const live = { 'Various VM type performance requirement test with MPF Configuration': 'Virtualization', 'MPF with heavy I/O stress - 48hrs': 'MPF', 'Update of Tahoe STOS from R-SCM': 'FW update', 'PXE Warm reboot OS cycle tests with no stress (AC)': 'Power cycling', 'Host to host full duplex mode dual port on BM': 'Performance', 'show manager / powershelf / system info looping test for 500x cycles': 'RSCM CLI', 'Completely unrelated title': 'Other' };
 Object.keys(live).forEach(t => assert.strictEqual(D.caseCategory(t), live[t], t));
-console.log('PASS: all 41 reference Cases and live-style titles map to the agreed categories');
+assert.deepStrictEqual(D.TEST_CATEGORIES.map(c => [c.name, c.owner]), [['BIOS OpMode', ''], ['Enumeration', 'Penny'], ['FW update', 'Paul'], ['Power cycling', 'Raymond'], ['Stress', 'Rex'], ['Virtualization', 'Rex'], ['MPF', 'Youyu'], ['Performance', 'Youyu'], ['RSCM CLI', 'Penny']]);
+assert.strictEqual(D.categoryOwner('MPF'), 'Youyu');
+console.log('PASS: all 41 reference Cases and live-style titles map to the agreed categories with their Log owners');
