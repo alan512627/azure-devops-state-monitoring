@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.10，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.11，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1348,3 +1348,10 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 
 - `Review Result` 原本不在 `D.STATE_COLORS`，退回預設淺灰 `#cbd5e1`，與 Not Started 灰 `#94a3b8` 難以分辨；新增 `"Review Result":"#f59e0b"`（琥珀）。目前 C4143 用到的 State：Not Started 灰、In Progress 靛、Review Result 琥珀、Blocked 紅、Closed 青綠。
 - `D.STATE_ORDER` 將 Review Result 排在 In Progress 之後；頂端 `State colours` 圖例改列實際使用的 Not Started／In Progress／Review Result／Closed／Blocked。
+
+## 69. 2026-11-08 Insights 新增 Cross-Rack title review（v1.13.11）
+
+- 背景：R1–R5 色塊以完全相同的標題（`D.normalizedTitle`）跨 Rack 對應；標題不一致的 Case 顯示虛線空框（tooltip 改為指向此清單）。
+- `D.crossRackTitleReview(racks)`：找出目前 Phase 中「不是每個 Rack 都有」的標題，依出現的 Rack 數由多到少處理；對每個缺少的 Rack，從該 Rack 同樣對不上的 Case 中找最相似的標題作為建議。相似度 `D.titleSimilarity` = 字元 bigram Dice 係數，取「原標題」與「去掉 `[..]`／`(..)` 前綴」兩者的較大值，只比英數字（忽略大小寫、標點）；低於 40% 視為無建議。已被建議的 Case 不會再反向重複列出。信心：≥85% High、≥60% Medium、其餘 Low。
+- Insights 新增 `Cross-Rack title review — Phase N` 區塊：標題、出現的 Rack（含 Case 連結）、缺少的 Rack、建議的 Case（連結＋標題）、相似度與信心；可依信心篩選、下載 CSV。只提供建議，不會自動合併或修改任何 Work Item。
+- 新增 `tests/cross-rack-title-review.test.cjs`（`[In-Band]` 前綴、錯字、整筆缺少三種情境）。
