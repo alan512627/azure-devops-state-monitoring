@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.15
+// @version      1.13.16
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2570,19 +2570,19 @@
   // Test categories. `refs` are 1-based positions in D.CASE_TITLE_REFERENCE; live titles are matched to the closest
   // reference title first, then to the keyword rules (checked in this order), otherwise they fall into Other.
   D.TEST_CATEGORIES = [
-    { name: 'BIOS OpMode', owner: '', refs: [5], keywords: [/\bbios\b/] },
-    { name: 'Enumeration', owner: 'Penny', refs: [1, 2, 3, 4], keywords: [/enumerat/, /\bfru\b/] },
-    { name: 'FW update', owner: 'Paul', refs: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], keywords: [/firmware update|fw update|\bfw\b.*\bupdate|update.*\b(fw|firmware|ifwi|bmc|cmc|omc|stos)\b|service config update/] },
-    { name: 'Power cycling', owner: 'Raymond', refs: [17, 18, 19, 20, 21, 22, 23, 24, 25], keywords: [/\b(ac|dc)\b.*cycle|warm reboot|\bpxe\b/] },
-    { name: 'Stress', owner: 'Rex', refs: [26, 27], keywords: [/stress/] },
-    { name: 'Virtualization', owner: 'Rex', refs: [28, 29, 30, 31, 32, 35], keywords: [/\bvms?\b|sr-?iov|virtual|guest os/] },
-    { name: 'MPF', owner: 'Youyu', refs: [33, 34], keywords: [/\bmpf\b/] },
-    { name: 'Performance', owner: 'Youyu', refs: [36, 37], keywords: [/diskspd|full-?duplex|performance|ntttcp|iostat/] },
-    { name: 'RSCM CLI', owner: 'Penny', refs: [38, 39, 40, 41], keywords: [/r-?scm command to|show manager|powershelf|show system|set operations/] }
+    { name: 'BIOS OpMode', reviewer: '', refs: [5], keywords: [/\bbios\b/] },
+    { name: 'Enumeration', reviewer: 'Penny', refs: [1, 2, 3, 4], keywords: [/enumerat/, /\bfru\b/] },
+    { name: 'FW update', reviewer: 'Paul', refs: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], keywords: [/firmware update|fw update|\bfw\b.*\bupdate|update.*\b(fw|firmware|ifwi|bmc|cmc|omc|stos)\b|service config update/] },
+    { name: 'Power cycling', reviewer: 'Raymond', refs: [17, 18, 19, 20, 21, 22, 23, 24, 25], keywords: [/\b(ac|dc)\b.*cycle|warm reboot|\bpxe\b/] },
+    { name: 'Stress', reviewer: 'Rex', refs: [26, 27], keywords: [/stress/] },
+    { name: 'Virtualization', reviewer: 'Rex', refs: [28, 29, 30, 31, 32, 35], keywords: [/\bvms?\b|sr-?iov|virtual|guest os/] },
+    { name: 'MPF', reviewer: 'Youyu', refs: [33, 34], keywords: [/\bmpf\b/] },
+    { name: 'Performance', reviewer: 'Youyu', refs: [36, 37], keywords: [/diskspd|full-?duplex|performance|ntttcp|iostat/] },
+    { name: 'RSCM CLI', reviewer: 'Penny', refs: [38, 39, 40, 41], keywords: [/r-?scm command to|show manager|powershelf|show system|set operations/] }
   ];
   D.CATEGORY_KEYWORD_ORDER = ['BIOS OpMode', 'Enumeration', 'RSCM CLI', 'FW update', 'Power cycling', 'MPF', 'Virtualization', 'Performance', 'Stress'];
   D.CATEGORY_OTHER = 'Other';
-  D.categoryOwner = function (name) { var c = D.TEST_CATEGORIES.filter(function (x) { return x.name === name; })[0]; return c && c.owner || ''; };
+  D.categoryReviewer = function (name) { var c = D.TEST_CATEGORIES.filter(function (x) { return x.name === name; })[0]; return c && c.reviewer || ''; };
   D.categoryNames = function () { return D.TEST_CATEGORIES.map(function (c) { return c.name; }).concat([D.CATEGORY_OTHER]); };
   D.caseCategory = function (title) {
     var key = D.normalizedTitle(title); D._categoryCache = D._categoryCache || {};
@@ -2684,8 +2684,8 @@
         hname.colSpan = 2 + racks.length;
         hname.appendChild(D.el('span', 'omatrix-cat-caret', collapsed ? '▸' : '▾'));
         hname.appendChild(document.createTextNode(row.header + ' '));
-        var owner = D.categoryOwner(row.header);
-        hname.appendChild(D.el('span', 'omatrix-cat-owner' + (owner ? '' : ' unset'), 'Log owner: ' + (owner || '—')));
+        var reviewer = D.categoryReviewer(row.header);
+        hname.appendChild(D.el('span', 'omatrix-cat-owner' + (reviewer ? '' : ' unset'), 'Log reviewer: ' + (reviewer || '—')));
         hname.appendChild(D.el('span', 'omatrix-cat-count', row.members.length + ' item' + (row.members.length === 1 ? '' : 's')));
         htr.appendChild(hname);
         var hdist = D.el('td', 'omatrix-distcell'); hdist.appendChild(distBar(row.counts, row.cells));

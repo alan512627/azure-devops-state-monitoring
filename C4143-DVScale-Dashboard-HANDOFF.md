@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.15，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.16，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1400,3 +1400,7 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
   | Performance | Youyu |
   | RSCM CLI | Penny |
 - Outcome matrix 的分類標題列在分類名稱後顯示 `Log owner: <name>` 標籤；未指定時顯示虛線 `Log owner: —`。新增 `D.categoryOwner(name)`，`tests/test-categories.test.cjs` 同步檢查 owner。
+
+## 74. 2026-11-08 Log owner 改名為 Log reviewer（v1.13.16）
+
+- 依使用者要求，分類標題列標籤由 `Log owner:` 改為 `Log reviewer:`；`D.TEST_CATEGORIES` 欄位 `owner` → `reviewer`，`D.categoryOwner` → `D.categoryReviewer`。人員對應不變（見第 73 節）。README、extension README 與 `tests/test-categories.test.cjs` 同步。
