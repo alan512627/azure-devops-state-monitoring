@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.11，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.12，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1355,3 +1355,10 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - `D.crossRackTitleReview(racks)`：找出目前 Phase 中「不是每個 Rack 都有」的標題，依出現的 Rack 數由多到少處理；對每個缺少的 Rack，從該 Rack 同樣對不上的 Case 中找最相似的標題作為建議。相似度 `D.titleSimilarity` = 字元 bigram Dice 係數，取「原標題」與「去掉 `[..]`／`(..)` 前綴」兩者的較大值，只比英數字（忽略大小寫、標點）；低於 40% 視為無建議。已被建議的 Case 不會再反向重複列出。信心：≥85% High、≥60% Medium、其餘 Low。
 - Insights 新增 `Cross-Rack title review — Phase N` 區塊：標題、出現的 Rack（含 Case 連結）、缺少的 Rack、建議的 Case（連結＋標題）、相似度與信心；可依信心篩選、下載 CSV。只提供建議，不會自動合併或修改任何 Work Item。
 - 新增 `tests/cross-rack-title-review.test.cjs`（`[In-Band]` 前綴、錯字、整筆缺少三種情境）。
+
+## 70. 2026-11-08 Overview 新增 Test item × Rack outcome matrix（v1.13.12）
+
+- Overview 的 Outcome 圓餅／長條圖下方新增 `Test item × Rack outcome matrix`：以 `D.crossRackIndex` 依標題把同一測項跨 Rack 對應成一列（`D.outcomeMatrixRows`），R1–R5 欄為各 Rack 該 Case 的 Execute Test Point Outcome（縮寫 P／F／B／NA／A、顏色同 Outcome 圓餅，點擊開啟 Case；沒有同名 Case 顯示虛線 `–`，tooltip 指向 Cross-Rack title review）。
+- 每列右側為跨 Rack 分佈長條與 `n/5 done`（已有非 Active 結果的 Rack 數）；底部 `Rack totals` 為各 Rack 的 P/F 數與分佈長條，最右為整體 P／F／B／NA／A 合計。
+- 排序（`D.sortOutcomeMatrix`）：most Failed／Blocked（預設）、most Passed、most Active／missing、title；篩選：All、Has Failed／Blocked、Completed on every Rack、Different outcomes across Racks、Missing on a Rack。選擇存在 `D.S.matrixSort`／`D.S.matrixFilter`，重新整理後保留。
+- Matrix 使用該 Phase 全部 Case（不套用 Time range），Test Point 載入前顯示提示文字。新增 `tests/outcome-matrix.test.cjs`。
