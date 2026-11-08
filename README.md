@@ -4,7 +4,7 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.13.16；本分支待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.13.17；本分支待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
@@ -109,7 +109,7 @@ v1.9.0 新增左側 `Insights` 分頁：
 
 - **真實 Pass／Fail**：每個 Case 的主要 outcome 以 Azure DevOps Test Plans「Execute」頁的 Test Point outcome 為準（以 `POST _apis/test/points` 依 Case ID 跨所有 Test Plan／Suite 查詢）；只呈現 `Passed`、`Failed`、`Blocked`、`Not Applicable`、`Active` 五種固定分類，分別使用綠、紅、橘、黃、靛色。Pass／Fail Rate 只顯示百分比，分母為選定時間範圍內的全部 Case，與 Outcome 圓餅圖同一基準。
 - **快速 Re-query**：核心 Query、Rack、Case 與狀態先完成並呈現 Overview／Rack；Child Bug History 驗證與 Test Point outcome 會在背景補載，完成後只更新相關統計。Core Work Item、Relation 與 Child Work Item 批次採有限並行，避免循序等待又不造成無限制 API 壓力。背景完成前的卡片不會被當作最終 Bug／Test Result 統計。
-- **Bug List 分頁**（Phase 2 旁）：唯讀執行 C4143 Bug query（`6f1d299f-eaa4-4d06-9d7f-0b6161f04788`），顯示 Total／Open／Resolved／Closed／Linked to Cases 卡片、State 圓餅圖、Severity 長條圖，以及可搜尋、依 State 篩選、點欄位排序的 Bug 表；`Linked Cases` 欄列出已驗證 Child link 的 Rack · Case。
+- **Bug List 分頁**（Phase 2 旁）：唯讀執行 C4143 Bug query（`6f1d299f-eaa4-4d06-9d7f-0b6161f04788`），顯示 Total／Open／Resolved／Closed／Linked to Cases 卡片、State 圓餅圖、Severity 長條圖，以及可搜尋、依 State 篩選、點欄位排序的 Bug 表；`Linked Cases` 欄列出已驗證 Child link 的 Rack · Case。表格右上可 `Download CSV`、`Download Excel`（Bugs＋Summary 兩個工作表，ID 與 URL 為超連結）、`Download PDF`（A4 橫向，含統計卡、State／Severity 圖與 Bug 表；以瀏覽器列印對話框輸出，目的地選「另存為 PDF」）；三者皆匯出目前篩選與排序後的 Bug。
 - **MSFT-Misc Portal 分頁**：C4143 Outline（SharePoint）、Test plan query、Test Plan、Bug query、Azure storage Logs container、CRC-SDK-Repo 連結卡；每張卡可 Edit／Reset，修改只存在本機瀏覽器（localStorage）。
 - **Execution Timeline**：Phase 1 Execution Timeline 在資料較早結束時至少延伸至 2026-11-13，最早日期 bar 與左側分格線保留小間距。
 - **Re-query timing**：完成後的提示會回報 core 與 supplemental 的秒數，方便區分主查詢與背景驗證的實際延遲。

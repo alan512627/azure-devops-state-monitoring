@@ -1,0 +1,10 @@
+const fs = require('fs');
+const assert = require('assert');
+const source = fs.readFileSync('C4143-DVScale-Dashboard.user.js', 'utf8');
+const D = { fmt: v => v ? 'D:' + v : '-' };
+const grab = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+eval(grab('  D.BUG_EXPORT_HEADERS = ', '  D.bugExportName = '));
+const row = D.bugExportRow({ id: 501, title: 'PSU fail, rack 1', state: 'Active', reason: 'New', severity: '1 - Critical', priority: '2', assignedTo: '-', createdBy: 'Alan', created: 'c', changed: 'x', tags: 'C4143', area: 'Dev\\Area', url: 'https://u/501' }, [{ rack: 'Rack #1', caseId: 101 }, { rack: 'Rack #3', caseId: 301 }]);
+assert.strictEqual(row.length, D.BUG_EXPORT_HEADERS.length);
+assert.deepStrictEqual(row, [501, 'PSU fail, rack 1', 'Active', 'New', '1 - Critical', '2', 'Unassigned', 'Alan', 'D:c', 'D:x', 'Rack #1 · #101; Rack #3 · #301', 'C4143', 'Dev\\Area', 'https://u/501']);
+console.log('PASS: Bug export rows line up with the CSV / Excel headers');
