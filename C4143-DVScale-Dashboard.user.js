@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.12
+// @version      1.13.13
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2567,6 +2567,43 @@
   D.CSS += "\n.xreview-intro{margin:0 0 10px}.xreview-table{min-width:1100px}.xreview-table td{vertical-align:top}.xreview-title{max-width:380px}.xreview-present{max-width:220px}.xreview-rack{display:inline-block;margin:0 8px 2px 0;white-space:nowrap;color:#9fb3d0}.xreview-missing{white-space:nowrap;color:#fbbf24;font-weight:700}.xreview-cand-title{color:#e2e8f0}"
     + "\n.xreview-conf{white-space:nowrap}.xreview-conf.high{background:#34d399}.xreview-conf.medium{background:#fbbf24}.xreview-conf.low{background:#fb923c}.xreview-conf.none{background:#475569;color:#e2e8f0}";
   // Test item × Rack outcome matrix: one row per test item (same title across Racks), one cell per Rack.
+  // Test categories. `refs` are 1-based positions in D.CASE_TITLE_REFERENCE; live titles are matched to the closest
+  // reference title first, then to the keyword rules (checked in this order), otherwise they fall into Other.
+  D.TEST_CATEGORIES = [
+    { name: 'BIOS OpMode', refs: [5], keywords: [/\bbios\b/] },
+    { name: 'Enumeration', refs: [1, 2, 3, 4], keywords: [/enumerat/, /\bfru\b/] },
+    { name: 'FW update', refs: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], keywords: [/firmware update|fw update|\bfw\b.*\bupdate|update.*\b(fw|firmware|ifwi|bmc|cmc|omc|stos)\b|service config update/] },
+    { name: 'Power cycling', refs: [17, 18, 19, 20, 21, 22, 23, 24, 25], keywords: [/\b(ac|dc)\b.*cycle|warm reboot|\bpxe\b/] },
+    { name: 'Stress', refs: [26, 27], keywords: [/stress/] },
+    { name: 'Virtualization', refs: [28, 29, 30, 31, 32, 35], keywords: [/\bvms?\b|sr-?iov|virtual|guest os/] },
+    { name: 'MPF', refs: [33, 34], keywords: [/\bmpf\b/] },
+    { name: 'Performance', refs: [36, 37], keywords: [/diskspd|full-?duplex|performance|ntttcp|iostat/] },
+    { name: 'RSCM CLI', refs: [38, 39, 40, 41], keywords: [/r-?scm command to|show manager|powershelf|show system|set operations/] }
+  ];
+  D.CATEGORY_KEYWORD_ORDER = ['BIOS OpMode', 'Enumeration', 'RSCM CLI', 'FW update', 'Power cycling', 'MPF', 'Virtualization', 'Performance', 'Stress'];
+  D.CATEGORY_OTHER = 'Other';
+  D.categoryNames = function () { return D.TEST_CATEGORIES.map(function (c) { return c.name; }).concat([D.CATEGORY_OTHER]); };
+  D.caseCategory = function (title) {
+    var key = D.normalizedTitle(title); D._categoryCache = D._categoryCache || {};
+    if (D._categoryCache[key]) return D._categoryCache[key];
+    var best = '', bestScore = 0;
+    D.TEST_CATEGORIES.forEach(function (category) {
+      category.refs.forEach(function (n) {
+        var score = D.titleSimilarity(title, D.CASE_TITLE_REFERENCE[n - 1] || '');
+        if (score > bestScore) { bestScore = score; best = category.name; }
+      });
+    });
+    var result = bestScore >= 0.6 ? best : '';
+    if (!result) {
+      var loose = D.looseTitle(title).replace(/\s+/g, ' '), raw = String(title || '').toLowerCase();
+      D.CATEGORY_KEYWORD_ORDER.some(function (name) {
+        var category = D.TEST_CATEGORIES.filter(function (c) { return c.name === name; })[0];
+        if (category && category.keywords.some(function (re) { return re.test(raw) || re.test(loose); })) { result = name; return true; }
+        return false;
+      });
+    }
+    return (D._categoryCache[key] = result || D.CATEGORY_OTHER);
+  };
   D.OUTCOME_ABBR = { Passed: 'P', Failed: 'F', Blocked: 'B', 'Not Applicable': 'NA', Active: 'A' };
   D.outcomeMatrixRows = function (racks) {
     var index = D.crossRackIndex(racks);
@@ -2592,15 +2629,19 @@
     return sorted;
   };
   D.outcomeMatrix = function (racks) {
-    var wrap = D.el('div', 'omatrix'), rows = D.outcomeMatrixRows(racks), mode = D.S.matrixSort || 'failed', only = D.S.matrixFilter || 'all';
-    var tools = D.el('div', 'bug-toolbar'), sortSel = D.el('select'), filterSel = D.el('select');
+    var wrap = D.el('div', 'omatrix'), rows = D.outcomeMatrixRows(racks), mode = D.S.matrixSort || 'failed', only = D.S.matrixFilter || 'all', group = D.S.matrixGroup || 'category';
+    D.S.matrixCatCollapsed = D.S.matrixCatCollapsed || {};
+    rows.forEach(function (row) { row.category = D.caseCategory(row.title); });
+    var tools = D.el('div', 'bug-toolbar'), sortSel = D.el('select'), filterSel = D.el('select'), groupSel = D.el('select');
+    [['category', 'Group: by category'], ['none', 'Group: none']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; groupSel.appendChild(opt); });
+    groupSel.value = group;
     [['failed', 'Sort: most Failed / Blocked'], ['passed', 'Sort: most Passed'], ['pending', 'Sort: most Active / missing'], ['title', 'Sort: title']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; sortSel.appendChild(opt); });
     [['all', 'All test items'], ['failed', 'Has Failed / Blocked'], ['done', 'Completed on every Rack'], ['mixed', 'Different outcomes across Racks'], ['gap', 'Missing on a Rack']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; filterSel.appendChild(opt); });
     sortSel.value = mode; filterSel.value = only;
     var legend = D.el('span', 'omatrix-legend');
     D.OUTCOME_ORDER.forEach(function (k) { var c = D.el('span', 'omatrix-cell mini', D.OUTCOME_ABBR[k]); c.style.background = D.outcomeColor(k); legend.appendChild(c); legend.appendChild(D.el('span', 'small', k)); });
     var gap = D.el('span', 'omatrix-cell mini gap', '–'); legend.appendChild(gap); legend.appendChild(D.el('span', 'small', 'No Case with this title'));
-    tools.appendChild(sortSel); tools.appendChild(filterSel); tools.appendChild(legend); wrap.appendChild(tools);
+    tools.appendChild(groupSel); tools.appendChild(sortSel); tools.appendChild(filterSel); tools.appendChild(legend); wrap.appendChild(tools);
     var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'omatrix-table'), thead = D.el('thead'), hr = D.el('tr');
     hr.appendChild(D.el('th', 'omatrix-idx', '#')); hr.appendChild(D.el('th', null, 'Test item (' + rows.length + ')'));
     racks.forEach(function (rack) { hr.appendChild(D.el('th', 'omatrix-rack', 'R' + (D.rackNumber(rack) || '?'))); });
@@ -2621,16 +2662,49 @@
       return true;
     }
     var shown = D.sortOutcomeMatrix(rows, mode).filter(keep), colCounts = racks.map(function () { return { Passed: 0, Failed: 0, Blocked: 0, 'Not Applicable': 0, Active: 0 }; });
-    shown.forEach(function (row, n) {
+    var ordered = shown;
+    if (group === 'category') {
+      var names = D.categoryNames();
+      ordered = [];
+      names.forEach(function (name) {
+        var members = shown.filter(function (row) { return row.category === name; });
+        if (!members.length) return;
+        var catCounts = { Passed: 0, Failed: 0, Blocked: 0, 'Not Applicable': 0, Active: 0 }, cells = 0;
+        members.forEach(function (row) { Object.keys(catCounts).forEach(function (k) { catCounts[k] += row.counts[k]; }); cells += racks.length; });
+        ordered.push({ header: name, members: members, counts: catCounts, cells: cells });
+        members.forEach(function (row) { ordered.push(row); });
+      });
+    }
+    var n = 0, currentCat = null;
+    ordered.forEach(function (row) {
+      if (row.header) {
+        currentCat = row.header;
+        var collapsed = !!D.S.matrixCatCollapsed[row.header], htr = D.el('tr', 'omatrix-cat' + (collapsed ? ' collapsed' : '')), hname = D.el('td', 'omatrix-cat-name');
+        hname.colSpan = 2 + racks.length;
+        hname.appendChild(D.el('span', 'omatrix-cat-caret', collapsed ? '▸' : '▾'));
+        hname.appendChild(document.createTextNode(row.header + ' '));
+        hname.appendChild(D.el('span', 'omatrix-cat-count', row.members.length + ' item' + (row.members.length === 1 ? '' : 's')));
+        htr.appendChild(hname);
+        var hdist = D.el('td', 'omatrix-distcell'); hdist.appendChild(distBar(row.counts, row.cells));
+        var done = row.cells - row.counts.Active - (row.cells - D.sum(row.counts));
+        hdist.appendChild(D.el('span', 'omatrix-distnum', 'P ' + row.counts.Passed + ' · F ' + row.counts.Failed + ' · ' + done + '/' + row.cells + ' done'));
+        htr.appendChild(hdist);
+        htr.addEventListener('click', function () { if (D.S.matrixCatCollapsed[row.header]) delete D.S.matrixCatCollapsed[row.header]; else D.S.matrixCatCollapsed[row.header] = 1; wrap.parentNode && wrap.parentNode.replaceChild(D.outcomeMatrix(racks), wrap); });
+        tbody.appendChild(htr);
+        return;
+      }
+      n++;
+      row.cells.forEach(function (cell, i) { if (cell) colCounts[i][cell.outcome]++; });
+      if (group === 'category' && D.S.matrixCatCollapsed[currentCat]) return;
       var tr = D.el('tr');
-      tr.appendChild(D.el('td', 'omatrix-idx', String(n + 1)));
+      tr.appendChild(D.el('td', 'omatrix-idx', String(n)));
       var t = D.el('td', 'omatrix-title', row.title); t.title = row.title; tr.appendChild(t);
       row.cells.forEach(function (cell, i) {
         var td = D.el('td', 'omatrix-rack');
         if (cell) {
           var a = D.el('a', 'omatrix-cell', D.OUTCOME_ABBR[cell.outcome] || '?'); a.href = D.wiUrl(cell.testCase.id); a.target = '_blank'; a.rel = 'noopener';
           a.style.background = D.outcomeColor(cell.outcome); a.title = racks[i].label + ' · #' + cell.testCase.id + ' · ' + cell.outcome + ' · State: ' + (cell.testCase.state || '-');
-          td.appendChild(a); colCounts[i][cell.outcome]++;
+          td.appendChild(a);
         } else { var g = D.el('span', 'omatrix-cell gap', '–'); g.title = racks[i].label + ' · no Case with this title (see Insights → Cross-Rack title review)'; td.appendChild(g); }
         tr.appendChild(td);
       });
@@ -2651,6 +2725,7 @@
     var tot = D.el('td', 'omatrix-distcell omatrix-foot'); tot.appendChild(distBar(allCounts, D.sum(allCounts)));
     tot.appendChild(D.el('span', 'omatrix-distnum', D.OUTCOME_ORDER.map(function (k) { return D.OUTCOME_ABBR[k] + ' ' + allCounts[k]; }).join(' · ')));
     fr.appendChild(tot); tfoot.appendChild(fr);
+    groupSel.addEventListener('change', function () { D.S.matrixGroup = groupSel.value; wrap.parentNode && wrap.parentNode.replaceChild(D.outcomeMatrix(racks), wrap); });
     sortSel.addEventListener('change', function () { D.S.matrixSort = sortSel.value; wrap.parentNode && wrap.parentNode.replaceChild(D.outcomeMatrix(racks), wrap); });
     filterSel.addEventListener('change', function () { D.S.matrixFilter = filterSel.value; wrap.parentNode && wrap.parentNode.replaceChild(D.outcomeMatrix(racks), wrap); });
     return wrap;
@@ -2658,6 +2733,7 @@
   D.CSS += "\n.omatrix-table{min-width:880px;font-size:12px}.omatrix-table th,.omatrix-table td{padding:3px 6px}.omatrix-idx{width:30px;color:#5f7391;text-align:right}.omatrix-title{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e2e8f0}.omatrix-rack{width:48px;text-align:center}"
     + "\n.omatrix-cell{display:inline-block;min-width:30px;padding:2px 0;border-radius:4px;text-align:center;font-weight:800;font-size:11px;color:#0b1220!important;text-decoration:none}.omatrix-cell.gap{background:transparent;border:1px dashed #33435f;color:#5f7391!important}.omatrix-cell.mini{min-width:22px;padding:0 3px;margin-left:8px}.omatrix-legend{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px}"
     + "\n.omatrix-distcell{min-width:220px}.omatrix-dist{display:inline-flex;width:130px;height:10px;border-radius:3px;overflow:hidden;background:#16243d;vertical-align:middle}.omatrix-dist i{display:block;height:100%}.omatrix-dist i.gap{background:repeating-linear-gradient(45deg,#33435f 0 3px,transparent 3px 6px)}.omatrix-distnum{margin-left:8px;color:#9fb3d0;white-space:nowrap}"
+    + "\n.omatrix-cat{cursor:pointer;background:#13213a}.omatrix-cat td{border-top:2px solid #253858;padding-top:6px!important;padding-bottom:6px!important}.omatrix-cat-name{font-weight:800;color:#e2e8f0;font-size:13px}.omatrix-cat-caret{display:inline-block;width:16px;color:#8fa3c0}.omatrix-cat-count{font-weight:400;color:#9fb3d0;font-size:11px}"
     + "\n.omatrix-table tbody tr:hover{background:#15233b}.omatrix-foot{border-top:2px solid #253858;font-weight:700;color:#cbd5e1}.omatrix-footnum{font-size:10px;color:#9fb3d0;margin-bottom:2px;white-space:nowrap}.omatrix-foot .omatrix-dist{width:100%;min-width:40px}.omatrix-distcell.omatrix-foot .omatrix-dist{width:130px}";
   D.buildPanels = function () {
     D.updateIdentity();
