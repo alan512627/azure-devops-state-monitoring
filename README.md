@@ -4,7 +4,7 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.13.10；本分支待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.13.11；本分支待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
@@ -14,7 +14,7 @@ Rack Case 列表的 Test Point 標籤會隨背景資料載入同步更新，與�
 
 Overview 與各 Rack 的 summary 卡片另顯示 `NOT UPDATED CASES`（Execute Test Point 仍為 `Active` 的 Case 數）與 `UPDATE COMPLETE`（已有 Passed／Failed／Blocked／Not Applicable 結果的 Case ÷ 範圍內全部 Case）。
 
-Overview 兩個圓餅圖（Test Case State、Test Point Outcome）下方各有可展開／收合的清單：每個 status → Rack 1–5 的數量長條 → 該 Rack 的 Case（可連到 Work Item）。點圓餅圖的區塊或圖例 chip 會自動展開並捲動到該 status；展開狀態在重新整理後保留；`Expand all` 會連同各 Rack 的 Case 清單一起展開。各 Rack 分頁的兩個圓餅圖下方也有同樣的清單（status → Case），同樣支援點選導航。清單中每個 Case 後面有 `R1`–`R5` 色塊，顯示同一個 Case（依標題對應）在各 Rack 的狀態：State 清單顯示各 Rack 的 Work Item State，Outcome 清單顯示各 Rack 的 Execute Test Point Outcome；白框為目前這一筆，點色塊可開啟該 Rack 的 Case。
+Overview 兩個圓餅圖（Test Case State、Test Point Outcome）下方各有可展開／收合的清單：每個 status → Rack 1–5 的數量長條 → 該 Rack 的 Case（可連到 Work Item）。點圓餅圖的區塊或圖例 chip 會自動展開並捲動到該 status；展開狀態在重新整理後保留；`Expand all` 會連同各 Rack 的 Case 清單一起展開。各 Rack 分頁的兩個圓餅圖下方也有同樣的清單（status → Case），同樣支援點選導航。清單中每個 Case 後面有 `R1`–`R5` 色塊，顯示同一個 Case（依標題對應）在各 Rack 的狀態：State 清單顯示各 Rack 的 Work Item State，Outcome 清單顯示各 Rack 的 Execute Test Point Outcome；白框為目前這一筆，點色塊可開啟該 Rack 的 Case。虛線空框表示該 Rack 沒有完全同名的 Case；Insights 的 **Cross-Rack title review** 會列出這些缺漏，並為每一筆建議該 Rack 上最相似的 Case（附相似度與 High／Medium／Low 信心），可篩選並下載 CSV 供確認後回 Azure DevOps 統一標題。
 
 ## 多專案 Query 選單
 

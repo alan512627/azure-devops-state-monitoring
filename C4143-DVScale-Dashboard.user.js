@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.10
+// @version      1.13.11
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -1383,6 +1383,99 @@
     ]), count: caseRows.length };
   };
   D.exportWeeklyExcel = function () { var report = D.weeklyXlsx(); D.downloadBlob(report.bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', D.reportPrefix() + '-' + D.phaseFileLabel() + '-Weekly-Report-' + D.reportStamp() + '.xlsx'); D.setStatus('Downloaded ' + D.phaseLabel(D.S.phase) + ' XLSX workbook with ' + report.count + ' case rows and three unfrozen worksheets.', 'info'); };
+  // Cross-Rack title review: Cases whose title is missing on some Rack, with the most similar Case on that Rack.
+  D.looseTitle = function (value, stripBrackets) {
+    var text = String(value || '');
+    if (text.normalize) text = text.normalize('NFKC');
+    text = text.toLowerCase();
+    if (stripBrackets) text = text.replace(/\[[^\]]*\]|\([^)]*\)/g, ' ');
+    return text.replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+  };
+  D.titleSimilarity = function (a, b) {
+    function dice(x, y) {
+      if (!x || !y) return 0; if (x === y) return 1;
+      var grams = {}, total = 0, hit = 0, i;
+      for (i = 0; i < x.length - 1; i++) { var g = x.substr(i, 2); grams[g] = (grams[g] || 0) + 1; total++; }
+      for (i = 0; i < y.length - 1; i++) { var h = y.substr(i, 2); total++; if (grams[h]) { grams[h]--; hit++; } }
+      return total ? 2 * hit / total : 0;
+    }
+    return Math.max(dice(D.looseTitle(a), D.looseTitle(b)), dice(D.looseTitle(a, true), D.looseTitle(b, true)));
+  };
+  D.crossRackTitleReview = function (racks) {
+    racks = racks || D.phaseRacks();
+    var index = D.crossRackIndex(racks), rows = Object.keys(index).map(function (key) { return index[key]; });
+    var partial = rows.filter(function (row) { return row.some(function (c) { return !c; }); });
+    partial.sort(function (a, b) { return b.filter(Boolean).length - a.filter(Boolean).length; });
+    var orphansByRack = racks.map(function (rack, i) { return partial.map(function (row) { return row[i]; }).filter(Boolean); });
+    var claimed = {}, items = [];
+    partial.forEach(function (row) {
+      var present = row.filter(Boolean);
+      if (present.every(function (c) { return claimed[c.id]; })) return; // already proposed as another title's counterpart
+      var reference = present[0];
+      row.forEach(function (c, i) {
+        if (c) return;
+        var best = null, bestScore = 0;
+        orphansByRack[i].forEach(function (candidate) {
+          if (claimed[candidate.id] || D.normalizedTitle(candidate.title) === D.normalizedTitle(reference.title)) return;
+          var score = D.titleSimilarity(reference.title, candidate.title);
+          if (score > bestScore) { bestScore = score; best = candidate; }
+        });
+        if (best && bestScore >= 0.4) claimed[best.id] = true; else best = null;
+        items.push({ title: reference.title, present: racks.map(function (rack, j) { return row[j] ? { rack: rack, testCase: row[j] } : null; }).filter(Boolean), missingRack: racks[i], candidate: best, score: best ? bestScore : 0 });
+      });
+      present.forEach(function (c) { claimed[c.id] = claimed[c.id] || 'ref'; });
+    });
+    return items;
+  };
+  D.matchConfidence = function (score) { return score >= 0.85 ? 'High' : score >= 0.6 ? 'Medium' : score > 0 ? 'Low' : 'None'; };
+  D.exportCrossRackReviewCsv = function (items) {
+    var headers = ['Title', 'Present on', 'Missing Rack', 'Suggested Case ID', 'Suggested Title', 'Similarity', 'Confidence', 'Suggested Case URL'];
+    var lines = [headers.map(D.csvValue).join(',')];
+    items.forEach(function (item) {
+      lines.push([item.title, item.present.map(function (p) { return p.rack.label + ' #' + p.testCase.id; }).join('; '), item.missingRack.label,
+        item.candidate ? item.candidate.id : '', item.candidate ? item.candidate.title : '', item.candidate ? Math.round(item.score * 100) + '%' : '', D.matchConfidence(item.score), item.candidate ? D.wiUrl(item.candidate.id) : ''].map(D.csvValue).join(','));
+    });
+    D.downloadBlob('﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8', D.reportPrefix() + '-' + D.phaseFileLabel() + '-Cross-Rack-Title-Review-' + D.reportStamp() + '.csv');
+  };
+  D.crossRackReviewBox = function () {
+    var racks = D.phaseRacks(), items = D.crossRackTitleReview(racks), box = D.box('Cross-Rack title review — ' + D.phaseLabel(D.S.phase));
+    box.id = 'crossRackReview';
+    var suggested = items.filter(function (item) { return item.candidate; }).length;
+    box.appendChild(D.el('div', 'small xreview-intro', 'R1–R5 chips match the same Case across Racks by exact title. These Cases are missing on a Rack under the same title; the suggestion is the most similar title on that Rack (ignoring case, punctuation and [..]/(..) prefixes). Confirm each pair, then align the titles in Azure DevOps.'));
+    if (!items.length) { box.appendChild(D.el('div', 'empty', 'Every Case title exists on all ' + racks.length + ' Racks — nothing to review.')); return box; }
+    var bar = D.el('div', 'bug-toolbar'), filter = D.el('select'), csv = D.el('button', 'primary', 'Download CSV');
+    [['all', 'All (' + items.length + ')'], ['High', 'High confidence'], ['Medium', 'Medium confidence'], ['Low', 'Low confidence'], ['None', 'No suggestion']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; filter.appendChild(opt); });
+    filter.value = D.S.xreviewFilter || 'all';
+    var count = D.el('span', 'small', items.length + ' missing title(s) · ' + suggested + ' with a suggested match');
+    bar.appendChild(filter); bar.appendChild(csv); bar.appendChild(count); box.appendChild(bar);
+    var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'xreview-table'), head = D.el('tr');
+    ['Case title (as on other Racks)', 'Present on', 'Missing on', 'Suggested match on that Rack', 'Similarity'].forEach(function (h) { head.appendChild(D.el('th', null, h)); });
+    var thead = D.el('thead'); thead.appendChild(head); table.appendChild(thead);
+    var tbody = D.el('tbody'); table.appendChild(tbody); scroll.appendChild(table); box.appendChild(scroll);
+    function link(testCase, text) { var a = D.el('a', null, text || ('#' + testCase.id)); a.href = D.wiUrl(testCase.id); a.target = '_blank'; a.rel = 'noopener'; a.title = testCase.title || ''; return a; }
+    function draw() {
+      D.S.xreviewFilter = filter.value; tbody.innerHTML = '';
+      items.filter(function (item) { return filter.value === 'all' || D.matchConfidence(item.score) === filter.value; }).forEach(function (item) {
+        var tr = D.el('tr'), conf = D.matchConfidence(item.score);
+        tr.appendChild(D.el('td', 'xreview-title', item.title));
+        var presentCell = D.el('td', 'xreview-present');
+        item.present.forEach(function (p) { var wrap = D.el('span', 'xreview-rack'); wrap.appendChild(document.createTextNode('R' + (D.rackNumber(p.rack) || '?') + ' ')); wrap.appendChild(link(p.testCase)); presentCell.appendChild(wrap); });
+        tr.appendChild(presentCell);
+        tr.appendChild(D.el('td', 'xreview-missing', item.missingRack.label));
+        var candCell = D.el('td');
+        if (item.candidate) { candCell.appendChild(link(item.candidate)); candCell.appendChild(D.el('span', 'xreview-cand-title', ' ' + item.candidate.title)); }
+        else candCell.appendChild(D.el('span', 'small', 'No similar title on this Rack'));
+        tr.appendChild(candCell);
+        var scoreCell = D.el('td', 'num'), badge = D.el('span', 'chip xreview-conf ' + conf.toLowerCase(), item.candidate ? Math.round(item.score * 100) + '% · ' + conf : '—');
+        scoreCell.appendChild(badge); tr.appendChild(scoreCell);
+        tbody.appendChild(tr);
+      });
+      if (!tbody.children.length) { var er = D.el('tr'), ec = D.el('td', 'empty', 'Nothing in this filter.'); ec.colSpan = 5; er.appendChild(ec); tbody.appendChild(er); }
+    }
+    filter.addEventListener('change', draw); csv.addEventListener('click', function () { D.exportCrossRackReviewCsv(items); });
+    draw();
+    return box;
+  };
   D.insightsPanel = function () {
     var wrap = D.el('div'), cases = D.allCases(), test = D.S.testResults || { status: 'idle', runs: [] }, summary = D.testResultSummary(cases), comparison = D.phaseComparison(D.S.snapshotComparison);
     var sticky = D.el('div', 'panel-sticky'), cards = D.el('div', 'cards');
@@ -1410,6 +1503,7 @@
     changesBox.appendChild(D.changeDetails('State changed', comparison.stateChanged || [], 'state'));
     changesBox.appendChild(D.changeDetails('Added', comparison.added || [], 'added')); changesBox.appendChild(D.changeDetails('Removed', comparison.removed || [], 'removed'));
     resultGrid.appendChild(resultBox); resultGrid.appendChild(changesBox); wrap.appendChild(resultGrid);
+    wrap.appendChild(D.crossRackReviewBox());
     return wrap;
   };
   D.CSS = "*{box-sizing:border-box}\nbody{margin:0;font-family:\"Segoe UI\",Roboto,\"Noto Sans TC\",\"Microsoft JhengHei\",sans-serif;background:#0b1220;color:#e2e8f0;font-size:14px}\na{color:#7dd3fc;text-decoration:none}a:hover{text-decoration:underline}\nheader{padding:14px 20px;background:linear-gradient(90deg,#132039,#0d1729);border-bottom:1px solid #1e2b45;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}\nh1{font-size:18px;margin:0 0 4px}\n.sub{font-size:12px;color:#8fa3c0}\n.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 20px;background:#0e1830;border-bottom:1px solid #1e2b45;position:sticky;top:0;z-index:20}\n.controls label{font-size:12px;color:#9fb3d0;display:flex;gap:6px;align-items:center}\nselect,button,input{background:#16243d;color:#e2e8f0;border:1px solid #27395c;border-radius:6px;padding:6px 10px;font-size:13px;font-family:inherit}\nbutton{cursor:pointer}button:hover{background:#1e3a5f}\nbutton.primary{background:#2563eb;border-color:#2563eb}button.primary:hover{background:#1d4ed8}\n.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:10px 20px 0}\n.tab{padding:8px 16px;border-radius:8px 8px 0 0;background:#111d33;border:1px solid #1e2b45;border-bottom:none;color:#9fb3d0;cursor:pointer;font-size:13px}\n.tab.active{background:#16243d;color:#fff;font-weight:600;box-shadow:inset 0 3px 0 #38bdf8}\n.panel{display:none;padding:16px 20px 60px}.panel.active{display:block}\n.cards{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;align-items:center}\n.card{background:#111d33;border:1px solid #1e2b45;border-radius:10px;padding:10px 16px;min-width:110px}\n.card .k{font-size:10px;color:#8fa3c0;letter-spacing:.05em}\n.card .v{font-size:22px;font-weight:700;margin-top:2px}\n.grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(320px,1.15fr);gap:14px;margin-bottom:16px}\n@media(max-width:980px){.grid{grid-template-columns:1fr}}\n.box{background:#111d33;border:1px solid #1e2b45;border-radius:10px;padding:14px}\n.box h3{margin:0 0 10px;font-size:12px;color:#cbd8ea;letter-spacing:.05em;text-transform:uppercase}\n.chartwrap{height:300px}\n.legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;justify-content:center}\ntable{width:100%;border-collapse:collapse;font-size:13px}\nth,td{text-align:left;padding:6px 8px;border-bottom:1px solid #1c2942}\nth{color:#8fa3c0;font-size:10px;text-transform:uppercase;letter-spacing:.05em}\ntr.total td{font-weight:700;border-top:2px solid #27395c;border-bottom:none}\ntd.num,th.num{text-align:right;font-variant-numeric:tabular-nums}\n.chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;color:#0b1220}\n.bar{height:8px;border-radius:4px;background:#1c2942;overflow:hidden;display:flex;min-width:70px}\ndetails.node{border:1px solid #1c2942;border-radius:8px;margin:6px 0;background:#0f1a2e}\ndetails.node[open]{background:#101d33}\ndetails.node>summary{cursor:pointer;padding:8px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;list-style:none}\ndetails.node>summary::-webkit-details-marker{display:none}\ndetails.node>summary:before{content:\"\\25B8\";color:#5b7ba6;font-size:12px;transition:transform .15s}\ndetails.node[open]>summary:before{transform:rotate(90deg)}\ndetails.node>summary:hover{background:#152341}\n.nodebody{padding:2px 10px 10px 24px}\n.ntitle{font-weight:600}\n.lvl1>summary>.ntitle{color:#f0f6ff;font-size:14px}\n.lvl2>summary>.ntitle{color:#cfe3ff;font-size:13px}\n.lvl3>summary>.ntitle{color:#b7cdea;font-size:12.5px;font-weight:500}\n.type{font-size:10px;color:#7d93b3;border:1px solid #27395c;border-radius:4px;padding:1px 5px}\n.spacer{flex:1}\n.caserow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px dashed #1c2942;font-size:13px}\n.caserow:hover{background:#152341}\n.caseid{font-family:Consolas,monospace;font-size:12px;color:#7dd3fc;min-width:64px}\n.casetitle{flex:1;min-width:200px;color:#d7e3f4}\n.date{font-size:11px;color:#7d93b3;font-variant-numeric:tabular-nums}\n.banner{margin:10px 20px;padding:10px 14px;border-radius:8px;font-size:13px;border:1px solid}\n.banner.info{background:#10233d;border-color:#27507f;color:#bcd9ff}\n.banner.warn{background:#3a2a10;border-color:#7a5a1c;color:#ffd9a0}\n.banner.err{background:#3a1620;border-color:#7f2740;color:#ffc2cf}\n.hide{display:none!important}\n.small{font-size:11px;color:#8fa3c0}\n.empty{padding:14px;text-align:center;color:#8fa3c0;font-size:13px}";
@@ -2377,7 +2471,7 @@
         chip.title = byState
           ? rack.label + ' · #' + other.id + ' · State: ' + (other.state || '-') + (outcome ? ' · Outcome: ' + outcome : '')
           : rack.label + ' · #' + other.id + ' · ' + (outcome || 'Outcome loading …') + ' · State: ' + (other.state || '-');
-      } else chip.title = rack.label + ' · no matching Case';
+      } else chip.title = rack.label + ' · no Case with this exact title (see Insights → Cross-Rack title review)';
       wrap.appendChild(chip);
     });
     return wrap;
@@ -2470,6 +2564,8 @@
     + "\n.xrack{display:inline-flex;gap:3px;flex:0 0 auto}.xrack-chip{display:inline-block;min-width:24px;padding:1px 4px;border-radius:4px;text-align:center;font-size:10px;font-weight:700;line-height:15px;color:#0b1220!important;background:#334155;text-decoration:none}.xrack-chip.current{outline:2px solid #fff;outline-offset:0}.xrack-chip.missing{background:transparent;color:#5f7391!important;border:1px dashed #33435f}"
     + "\n.status-break-mini.hide{display:none}.status-break-racks.flat{padding:2px 10px 8px 28px}.status-break-cases.flat{padding-left:0;max-height:320px}"
     + "\n@media(max-width:620px){.status-break-mini{display:none}.status-break-cases{padding-left:10px}}";
+  D.CSS += "\n.xreview-intro{margin:0 0 10px}.xreview-table{min-width:1100px}.xreview-table td{vertical-align:top}.xreview-title{max-width:380px}.xreview-present{max-width:220px}.xreview-rack{display:inline-block;margin:0 8px 2px 0;white-space:nowrap;color:#9fb3d0}.xreview-missing{white-space:nowrap;color:#fbbf24;font-weight:700}.xreview-cand-title{color:#e2e8f0}"
+    + "\n.xreview-conf{white-space:nowrap}.xreview-conf.high{background:#34d399}.xreview-conf.medium{background:#fbbf24}.xreview-conf.low{background:#fb923c}.xreview-conf.none{background:#475569;color:#e2e8f0}";
   D.buildPanels = function () {
     D.updateIdentity();
     var tabsBar = document.getElementById('tabs'), host = document.getElementById('panels');
