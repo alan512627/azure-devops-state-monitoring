@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.17，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.18，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1412,3 +1412,9 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - Excel 沿用 `D.xlsxWorkbook`：`Bugs` 工作表（ID、URL 為超連結）＋ `Summary` 工作表（Query、產生時間、篩選、數量、Open 數、State／Severity 分佈）。
 - PDF：userscript 無外部函式庫，因此以隱藏 iframe 產生 A4 橫向列印頁（標題與篩選說明、Total／Open／Resolved／Closed 卡、依匯出範圍重算的 State 圓餅與 Severity 長條、Bug 表），呼叫瀏覽器列印，使用者於目的地選「另存為 PDF」；iframe 列印失敗時改開新視窗列印。
 - 新增 `tests/bug-export.test.cjs`。
+
+## 76. 2026-11-08 頂端區塊固定置頂（v1.13.18）
+
+- `D.buildShell` 將 `header`（標題／Re-run／Export）、`.controls`（Query、Data source、Time range、Chart type、圖例）與 `#phaseTabs`（Phase 1／Phase 2／Bug List／MSFT-Misc Portal）包進 `.dvdash-top`（`position:sticky; top:0; z-index:30`），三者整體固定置頂；原本只有 `.controls` sticky。
+- `--dvdash-controls-height` 改量測整個 `.dvdash-top` 高度（`ResizeObserver` 監看），因此各分頁的 `.panel-sticky` summary 卡片會接在頂端區塊下方固定，左側 Rack 直排分頁也依此 offset；從圓餅圖開始才往下捲動。
+- 視窗高度 ≤ 560px 時 `.dvdash-top` 改為一般捲動（offset 歸零），避免小螢幕被固定區塊佔滿；原有 ≤ 700px 高度時 summary 卡片不固定的規則保留。
