@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.11
+// @version      1.13.12
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2566,6 +2566,99 @@
     + "\n@media(max-width:620px){.status-break-mini{display:none}.status-break-cases{padding-left:10px}}";
   D.CSS += "\n.xreview-intro{margin:0 0 10px}.xreview-table{min-width:1100px}.xreview-table td{vertical-align:top}.xreview-title{max-width:380px}.xreview-present{max-width:220px}.xreview-rack{display:inline-block;margin:0 8px 2px 0;white-space:nowrap;color:#9fb3d0}.xreview-missing{white-space:nowrap;color:#fbbf24;font-weight:700}.xreview-cand-title{color:#e2e8f0}"
     + "\n.xreview-conf{white-space:nowrap}.xreview-conf.high{background:#34d399}.xreview-conf.medium{background:#fbbf24}.xreview-conf.low{background:#fb923c}.xreview-conf.none{background:#475569;color:#e2e8f0}";
+  // Test item × Rack outcome matrix: one row per test item (same title across Racks), one cell per Rack.
+  D.OUTCOME_ABBR = { Passed: 'P', Failed: 'F', Blocked: 'B', 'Not Applicable': 'NA', Active: 'A' };
+  D.outcomeMatrixRows = function (racks) {
+    var index = D.crossRackIndex(racks);
+    return Object.keys(index).map(function (key) {
+      var cells = index[key].map(function (testCase) {
+        if (!testCase) return null;
+        var o = D.caseOutcome(testCase);
+        return { testCase: testCase, outcome: D.resultOutcomeKey(o && o.outcome) };
+      });
+      var counts = { Passed: 0, Failed: 0, Blocked: 0, 'Not Applicable': 0, Active: 0 };
+      cells.forEach(function (cell) { if (cell) counts[cell.outcome]++; });
+      var first = cells.filter(Boolean)[0];
+      return { key: key, title: first ? first.testCase.title : key, cells: cells, counts: counts, present: cells.filter(Boolean).length };
+    });
+  };
+  D.sortOutcomeMatrix = function (rows, mode) {
+    var sorted = rows.slice();
+    var byTitle = function (a, b) { return String(a.title).localeCompare(String(b.title)); };
+    if (mode === 'failed') sorted.sort(function (a, b) { return (b.counts.Failed + b.counts.Blocked) - (a.counts.Failed + a.counts.Blocked) || b.counts.Failed - a.counts.Failed || byTitle(a, b); });
+    else if (mode === 'passed') sorted.sort(function (a, b) { return b.counts.Passed - a.counts.Passed || byTitle(a, b); });
+    else if (mode === 'pending') sorted.sort(function (a, b) { return (b.counts.Active + b.cells.length - b.present) - (a.counts.Active + a.cells.length - a.present) || byTitle(a, b); });
+    else sorted.sort(byTitle);
+    return sorted;
+  };
+  D.outcomeMatrix = function (racks) {
+    var wrap = D.el('div', 'omatrix'), rows = D.outcomeMatrixRows(racks), mode = D.S.matrixSort || 'failed', only = D.S.matrixFilter || 'all';
+    var tools = D.el('div', 'bug-toolbar'), sortSel = D.el('select'), filterSel = D.el('select');
+    [['failed', 'Sort: most Failed / Blocked'], ['passed', 'Sort: most Passed'], ['pending', 'Sort: most Active / missing'], ['title', 'Sort: title']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; sortSel.appendChild(opt); });
+    [['all', 'All test items'], ['failed', 'Has Failed / Blocked'], ['done', 'Completed on every Rack'], ['mixed', 'Different outcomes across Racks'], ['gap', 'Missing on a Rack']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; filterSel.appendChild(opt); });
+    sortSel.value = mode; filterSel.value = only;
+    var legend = D.el('span', 'omatrix-legend');
+    D.OUTCOME_ORDER.forEach(function (k) { var c = D.el('span', 'omatrix-cell mini', D.OUTCOME_ABBR[k]); c.style.background = D.outcomeColor(k); legend.appendChild(c); legend.appendChild(D.el('span', 'small', k)); });
+    var gap = D.el('span', 'omatrix-cell mini gap', '–'); legend.appendChild(gap); legend.appendChild(D.el('span', 'small', 'No Case with this title'));
+    tools.appendChild(sortSel); tools.appendChild(filterSel); tools.appendChild(legend); wrap.appendChild(tools);
+    var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'omatrix-table'), thead = D.el('thead'), hr = D.el('tr');
+    hr.appendChild(D.el('th', 'omatrix-idx', '#')); hr.appendChild(D.el('th', null, 'Test item (' + rows.length + ')'));
+    racks.forEach(function (rack) { hr.appendChild(D.el('th', 'omatrix-rack', 'R' + (D.rackNumber(rack) || '?'))); });
+    hr.appendChild(D.el('th', null, 'Distribution across Racks'));
+    thead.appendChild(hr); table.appendChild(thead);
+    var tbody = D.el('tbody'), tfoot = D.el('tfoot'); table.appendChild(tbody); table.appendChild(tfoot); scroll.appendChild(table); wrap.appendChild(scroll);
+    function distBar(counts, total) {
+      var bar = D.el('span', 'omatrix-dist');
+      D.OUTCOME_ORDER.forEach(function (k) { if (!counts[k]) return; var seg = D.el('i'); seg.style.flexGrow = String(counts[k]); seg.style.background = D.outcomeColor(k); seg.title = k + ': ' + counts[k]; bar.appendChild(seg); });
+      var missing = total - D.sum(counts); if (missing > 0) { var m = D.el('i', 'gap'); m.style.flexGrow = String(missing); m.title = 'Missing: ' + missing; bar.appendChild(m); }
+      return bar;
+    }
+    function keep(row) {
+      if (only === 'failed') return row.counts.Failed + row.counts.Blocked > 0;
+      if (only === 'done') return row.present === racks.length && row.counts.Active === 0;
+      if (only === 'gap') return row.present < racks.length;
+      if (only === 'mixed') { var kinds = {}; row.cells.forEach(function (c) { if (c) kinds[c.outcome] = 1; }); return Object.keys(kinds).length > 1; }
+      return true;
+    }
+    var shown = D.sortOutcomeMatrix(rows, mode).filter(keep), colCounts = racks.map(function () { return { Passed: 0, Failed: 0, Blocked: 0, 'Not Applicable': 0, Active: 0 }; });
+    shown.forEach(function (row, n) {
+      var tr = D.el('tr');
+      tr.appendChild(D.el('td', 'omatrix-idx', String(n + 1)));
+      var t = D.el('td', 'omatrix-title', row.title); t.title = row.title; tr.appendChild(t);
+      row.cells.forEach(function (cell, i) {
+        var td = D.el('td', 'omatrix-rack');
+        if (cell) {
+          var a = D.el('a', 'omatrix-cell', D.OUTCOME_ABBR[cell.outcome] || '?'); a.href = D.wiUrl(cell.testCase.id); a.target = '_blank'; a.rel = 'noopener';
+          a.style.background = D.outcomeColor(cell.outcome); a.title = racks[i].label + ' · #' + cell.testCase.id + ' · ' + cell.outcome + ' · State: ' + (cell.testCase.state || '-');
+          td.appendChild(a); colCounts[i][cell.outcome]++;
+        } else { var g = D.el('span', 'omatrix-cell gap', '–'); g.title = racks[i].label + ' · no Case with this title (see Insights → Cross-Rack title review)'; td.appendChild(g); }
+        tr.appendChild(td);
+      });
+      var dist = D.el('td', 'omatrix-distcell'); dist.appendChild(distBar(row.counts, racks.length));
+      dist.appendChild(D.el('span', 'omatrix-distnum', (row.present - row.counts.Active) + '/' + racks.length + ' done'));
+      tr.appendChild(dist); tbody.appendChild(tr);
+    });
+    if (!shown.length) { var er = D.el('tr'), ec = D.el('td', 'empty', 'No test items match this filter.'); ec.colSpan = racks.length + 3; er.appendChild(ec); tbody.appendChild(er); }
+    var fr = D.el('tr'); fr.appendChild(D.el('td', 'omatrix-idx', '')); fr.appendChild(D.el('td', 'omatrix-title omatrix-foot', 'Rack totals (' + shown.length + ' items)'));
+    colCounts.forEach(function (counts) {
+      var td = D.el('td', 'omatrix-rack omatrix-foot');
+      td.title = D.OUTCOME_ORDER.map(function (k) { return k + ': ' + counts[k]; }).join(' · ');
+      td.appendChild(D.el('div', 'omatrix-footnum', counts.Passed + 'P / ' + (counts.Failed) + 'F'));
+      td.appendChild(distBar(counts, D.sum(counts))); fr.appendChild(td);
+    });
+    var allCounts = { Passed: 0, Failed: 0, Blocked: 0, 'Not Applicable': 0, Active: 0 };
+    colCounts.forEach(function (c) { Object.keys(c).forEach(function (k) { allCounts[k] += c[k]; }); });
+    var tot = D.el('td', 'omatrix-distcell omatrix-foot'); tot.appendChild(distBar(allCounts, D.sum(allCounts)));
+    tot.appendChild(D.el('span', 'omatrix-distnum', D.OUTCOME_ORDER.map(function (k) { return D.OUTCOME_ABBR[k] + ' ' + allCounts[k]; }).join(' · ')));
+    fr.appendChild(tot); tfoot.appendChild(fr);
+    sortSel.addEventListener('change', function () { D.S.matrixSort = sortSel.value; wrap.parentNode && wrap.parentNode.replaceChild(D.outcomeMatrix(racks), wrap); });
+    filterSel.addEventListener('change', function () { D.S.matrixFilter = filterSel.value; wrap.parentNode && wrap.parentNode.replaceChild(D.outcomeMatrix(racks), wrap); });
+    return wrap;
+  };
+  D.CSS += "\n.omatrix-table{min-width:880px;font-size:12px}.omatrix-table th,.omatrix-table td{padding:3px 6px}.omatrix-idx{width:30px;color:#5f7391;text-align:right}.omatrix-title{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e2e8f0}.omatrix-rack{width:48px;text-align:center}"
+    + "\n.omatrix-cell{display:inline-block;min-width:30px;padding:2px 0;border-radius:4px;text-align:center;font-weight:800;font-size:11px;color:#0b1220!important;text-decoration:none}.omatrix-cell.gap{background:transparent;border:1px dashed #33435f;color:#5f7391!important}.omatrix-cell.mini{min-width:22px;padding:0 3px;margin-left:8px}.omatrix-legend{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px}"
+    + "\n.omatrix-distcell{min-width:220px}.omatrix-dist{display:inline-flex;width:130px;height:10px;border-radius:3px;overflow:hidden;background:#16243d;vertical-align:middle}.omatrix-dist i{display:block;height:100%}.omatrix-dist i.gap{background:repeating-linear-gradient(45deg,#33435f 0 3px,transparent 3px 6px)}.omatrix-distnum{margin-left:8px;color:#9fb3d0;white-space:nowrap}"
+    + "\n.omatrix-table tbody tr:hover{background:#15233b}.omatrix-foot{border-top:2px solid #253858;font-weight:700;color:#cbd5e1}.omatrix-footnum{font-size:10px;color:#9fb3d0;margin-bottom:2px;white-space:nowrap}.omatrix-foot .omatrix-dist{width:100%;min-width:40px}.omatrix-distcell.omatrix-foot .omatrix-dist{width:130px}";
   D.buildPanels = function () {
     D.updateIdentity();
     var tabsBar = document.getElementById('tabs'), host = document.getElementById('panels');
@@ -2617,6 +2710,9 @@
         var ob2 = D.box('Test Point Outcome counts — by Rack');
         refs.outcomeBarHost = D.el('div', 'chartwrap'); ob2.appendChild(refs.outcomeBarHost);
         outcomeGrid.appendChild(ob1); outcomeGrid.appendChild(ob2); panel.appendChild(outcomeGrid);
+        var matrixBox = D.box('Test item × Rack outcome matrix — same Case across Racks');
+        matrixBox.appendChild(D.el('div', 'small', 'One row per test item (matched by title across Racks); each cell is that Rack\'s Execute Test Point outcome. Uses every Case in the phase (time range not applied). Click a cell to open the Case.'));
+        refs.matrixHost = D.el('div'); matrixBox.appendChild(refs.matrixHost); panel.appendChild(matrixBox);
         var b3 = D.box('Rack × State summary table');
         refs.tableBox = D.el('div'); b3.appendChild(refs.tableBox); panel.appendChild(b3);
         var b4 = D.box('Bug tracking — verified Test Case Child links');
@@ -2740,6 +2836,8 @@
         if (resultReady) p.outcomeBreakHost.appendChild(D.statusRackBreakdown('outcome', phaseRacks, function (c) { var o = D.caseOutcome(c); return D.resultOutcomeKey(o && o.outcome); }, D.orderOutcomes, D.outcomeColor, crossChips));
         else p.outcomeBreakHost.appendChild(D.el('div', 'small status-break', 'Rack breakdown appears after Test Point outcomes load …'));
         D.linkChartToBreakdown([p.outcomePieHost, p.outcomeLegendHost], p.outcomeBreakHost);
+        p.matrixHost.innerHTML = '';
+        p.matrixHost.appendChild(resultReady ? D.outcomeMatrix(phaseRacks) : D.el('div', 'small', 'Matrix appears after Test Point outcomes load …'));
       } else if (p.kind === 'rack') {
         var cs = D.collect(p.rack, 'Test Case'), fc = cs.filter(D.inRange);
         p.panel.querySelectorAll('.caserow').forEach(function (row) {
