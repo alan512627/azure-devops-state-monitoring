@@ -1,0 +1,15 @@
+const fs = require('fs');
+const assert = require('assert');
+const source = fs.readFileSync('C4143-DVScale-Dashboard.user.js', 'utf8');
+const D = {};
+const grab = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+eval('D.CASE_TITLE_REFERENCE = ' + source.match(/D\.CASE_TITLE_REFERENCE = (\[[\s\S]*?\]);/)[1]);
+eval(grab('  D.normalizedTitle = ', '\n'));
+eval(grab('  D.looseTitle = ', '  D.crossRackTitleReview = '));
+eval(grab('  D.TEST_CATEGORIES = ', '  D.OUTCOME_ABBR = '));
+const expected = { 'BIOS OpMode': [5], Enumeration: [1, 2, 3, 4], 'FW update': [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 'Power cycling': [17, 18, 19, 20, 21, 22, 23, 24, 25], Stress: [26, 27], Virtualization: [28, 29, 30, 31, 32, 35], MPF: [33, 34], Performance: [36, 37], 'RSCM CLI': [38, 39, 40, 41] };
+Object.keys(expected).forEach(name => expected[name].forEach(n => assert.strictEqual(D.caseCategory(D.CASE_TITLE_REFERENCE[n - 1]), name, '#' + n)));
+assert.strictEqual(D.categoryNames()[0], 'BIOS OpMode');
+const live = { 'Various VM type performance requirement test with MPF Configuration': 'Virtualization', 'MPF with heavy I/O stress - 48hrs': 'MPF', 'Update of Tahoe STOS from R-SCM': 'FW update', 'PXE Warm reboot OS cycle tests with no stress (AC)': 'Power cycling', 'Host to host full duplex mode dual port on BM': 'Performance', 'show manager / powershelf / system info looping test for 500x cycles': 'RSCM CLI', 'Completely unrelated title': 'Other' };
+Object.keys(live).forEach(t => assert.strictEqual(D.caseCategory(t), live[t], t));
+console.log('PASS: all 41 reference Cases and live-style titles map to the agreed categories');

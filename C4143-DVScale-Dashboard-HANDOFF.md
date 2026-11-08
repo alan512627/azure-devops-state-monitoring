@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.12，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.13，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1362,3 +1362,21 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 每列右側為跨 Rack 分佈長條與 `n/5 done`（已有非 Active 結果的 Rack 數）；底部 `Rack totals` 為各 Rack 的 P/F 數與分佈長條，最右為整體 P／F／B／NA／A 合計。
 - 排序（`D.sortOutcomeMatrix`）：most Failed／Blocked（預設）、most Passed、most Active／missing、title；篩選：All、Has Failed／Blocked、Completed on every Rack、Different outcomes across Racks、Missing on a Rack。選擇存在 `D.S.matrixSort`／`D.S.matrixFilter`，重新整理後保留。
 - Matrix 使用該 Phase 全部 Case（不套用 Time range），Test Point 載入前顯示提示文字。新增 `tests/outcome-matrix.test.cjs`。
+
+## 71. 2026-11-08 測項分類與 Matrix 分類分段（v1.13.13）
+
+- 新增 `D.TEST_CATEGORIES`（依使用者確認，順序即顯示順序），以 `D.CASE_TITLE_REFERENCE` 的 1-based 編號指定：
+  | 分類 | 標準標題編號 |
+  |---|---|
+  | BIOS OpMode | 5 |
+  | Enumeration | 1–4 |
+  | FW update | 6–16 |
+  | Power cycling | 17–25 |
+  | Stress | 26、27 |
+  | Virtualization | 28–32、35 |
+  | MPF | 33、34 |
+  | Performance | 36、37 |
+  | RSCM CLI | 38–41 |
+  其餘歸 `Other`。
+- `D.caseCategory(title)`：先以 `D.titleSimilarity` 找最接近的標準標題（≥60% 採用其分類），否則依 `D.CATEGORY_KEYWORD_ORDER` 的關鍵字規則，皆不符則 Other；結果以標題快取。
+- Outcome matrix 新增 `Group: by category`（預設）／`none`；分類標題列顯示項目數、跨 Rack 分佈、P／F 數與 `done/總格數`，點擊可收合（`D.S.matrixCatCollapsed`）；Rack totals 仍計入收合中的列。新增 `tests/test-categories.test.cjs`。
