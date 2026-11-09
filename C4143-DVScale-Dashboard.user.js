@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.13.18
+// @version      1.13.19
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2577,6 +2577,7 @@
     var tools = D.el('div', 'status-break-tools'), expand = D.el('button', null, 'Expand all'), collapse = D.el('button', null, 'Collapse all');
     tools.appendChild(D.el('span', 'small', (flat ? 'Cases by status' : 'Rack breakdown by status') + ' · R1–R5 = the same Case\'s ' + (options.chipMode === 'state' ? 'State' : 'Test Point outcome') + ' on each Rack (white outline = this Case) · click a chart slice or legend chip to jump here')); tools.appendChild(expand); tools.appendChild(collapse); wrap.appendChild(tools);
     function remember(details, id) {
+      id = (D.S.phase || 'phase1') + '|' + id; // open/closed state is kept per Phase
       details.open = !!D.S.breakdownOpen[id];
       details.addEventListener('toggle', function () { if (details.open) D.S.breakdownOpen[id] = 1; else delete D.S.breakdownOpen[id]; });
     }
@@ -2716,7 +2717,8 @@
   };
   D.outcomeMatrix = function (racks) {
     var wrap = D.el('div', 'omatrix'), rows = D.outcomeMatrixRows(racks), mode = D.S.matrixSort || 'failed', only = D.S.matrixFilter || 'all', group = D.S.matrixGroup || 'category';
-    D.S.matrixCatCollapsed = D.S.matrixCatCollapsed || {};
+    D.S.matrixCatCollapsedByPhase = D.S.matrixCatCollapsedByPhase || {};
+    var collapsedMap = D.S.matrixCatCollapsedByPhase[D.S.phase || 'phase1'] = D.S.matrixCatCollapsedByPhase[D.S.phase || 'phase1'] || {};
     rows.forEach(function (row) { row.category = D.caseCategory(row.title); });
     var tools = D.el('div', 'bug-toolbar'), sortSel = D.el('select'), filterSel = D.el('select'), groupSel = D.el('select');
     [['category', 'Group: by category'], ['none', 'Group: none']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; groupSel.appendChild(opt); });
@@ -2765,7 +2767,7 @@
     ordered.forEach(function (row) {
       if (row.header) {
         currentCat = row.header;
-        var collapsed = !!D.S.matrixCatCollapsed[row.header], htr = D.el('tr', 'omatrix-cat' + (collapsed ? ' collapsed' : '')), hname = D.el('td', 'omatrix-cat-name');
+        var collapsed = !!collapsedMap[row.header], htr = D.el('tr', 'omatrix-cat' + (collapsed ? ' collapsed' : '')), hname = D.el('td', 'omatrix-cat-name');
         hname.colSpan = 2 + racks.length;
         hname.appendChild(D.el('span', 'omatrix-cat-caret', collapsed ? '▸' : '▾'));
         hname.appendChild(document.createTextNode(row.header + ' '));
@@ -2777,13 +2779,13 @@
         var done = row.cells - row.counts.Active - (row.cells - D.sum(row.counts));
         hdist.appendChild(D.el('span', 'omatrix-distnum', 'P ' + row.counts.Passed + ' · F ' + row.counts.Failed + ' · ' + done + '/' + row.cells + ' done'));
         htr.appendChild(hdist);
-        htr.addEventListener('click', function () { if (D.S.matrixCatCollapsed[row.header]) delete D.S.matrixCatCollapsed[row.header]; else D.S.matrixCatCollapsed[row.header] = 1; wrap.parentNode && wrap.parentNode.replaceChild(D.outcomeMatrix(racks), wrap); });
+        htr.addEventListener('click', function () { if (collapsedMap[row.header]) delete collapsedMap[row.header]; else collapsedMap[row.header] = 1; wrap.parentNode && wrap.parentNode.replaceChild(D.outcomeMatrix(racks), wrap); });
         tbody.appendChild(htr);
         return;
       }
       n++;
       row.cells.forEach(function (cell, i) { if (cell) colCounts[i][cell.outcome]++; });
-      if (group === 'category' && D.S.matrixCatCollapsed[currentCat]) return;
+      if (group === 'category' && collapsedMap[currentCat]) return;
       var tr = D.el('tr');
       tr.appendChild(D.el('td', 'omatrix-idx', String(n)));
       var t = D.el('td', 'omatrix-title', row.title); t.title = row.title; tr.appendChild(t);
