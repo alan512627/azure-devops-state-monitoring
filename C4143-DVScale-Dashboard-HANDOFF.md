@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.18，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.19，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1418,3 +1418,9 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - `D.buildShell` 將 `header`（標題／Re-run／Export）、`.controls`（Query、Data source、Time range、Chart type、圖例）與 `#phaseTabs`（Phase 1／Phase 2／Bug List／MSFT-Misc Portal）包進 `.dvdash-top`（`position:sticky; top:0; z-index:30`），三者整體固定置頂；原本只有 `.controls` sticky。
 - `--dvdash-controls-height` 改量測整個 `.dvdash-top` 高度（`ResizeObserver` 監看），因此各分頁的 `.panel-sticky` summary 卡片會接在頂端區塊下方固定，左側 Rack 直排分頁也依此 offset；從圓餅圖開始才往下捲動。
 - 視窗高度 ≤ 560px 時 `.dvdash-top` 改為一般捲動（offset 歸零），避免小螢幕被固定區塊佔滿；原有 ≤ 700px 高度時 summary 卡片不固定的規則保留。
+
+## 77. 2026-11-09 Phase 2 功能同步確認與展開狀態分 Phase 保存（v1.13.19）
+
+- 使用者要求 Phase 1 的修正與新增功能在 Phase 2 同步。逐項以兩個 Phase 皆有資料的 mock（各 5 Racks × 8 Cases、Phase 2 outcome／State 不同）在 Chromium 驗證 Phase 2：Execute Test Point outcome（case-id query）、PASS／FAIL RATE、NOT UPDATED CASES／UPDATE COMPLETE、State 與 Outcome 圓餅下方 status → Rack → Case 清單與點選導航、R1–R5 State／Outcome 色塊、Test item × Rack outcome matrix（分類分段、Log reviewer）、各 Rack 分頁的卡片與清單、Insights 的 Cross-Rack title review（標題顯示 Phase 2）、頂端固定區塊——皆以 Phase 2 自己的資料正確運作（這些功能都以 `D.S.phase`／`D.phaseRacks()` 動態計算，非寫死 Phase 1）。
+- 修正：清單展開狀態（`D.S.breakdownOpen`）與 matrix 分類收合狀態原本兩個 Phase 共用，在 Phase 1 展開後切到 Phase 2 也會展開；改為依 Phase 分開保存（breakdown key 前綴 `phase1|`／`phase2|`，matrix 改用 `D.S.matrixCatCollapsedByPhase[phase]`）。Matrix 的排序／篩選與分組選擇維持兩個 Phase 共用。
+- 刻意保留為 Phase 1 專屬的：Execution Timeline 在資料較早結束時延伸到 2026-11-11（第 49 節以前的需求）；Bug List 與 MSFT-Misc Portal 為 Query 層級，兩個 Phase 共用。
