@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.13.19，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.14.0，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1424,3 +1424,12 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 使用者要求 Phase 1 的修正與新增功能在 Phase 2 同步。逐項以兩個 Phase 皆有資料的 mock（各 5 Racks × 8 Cases、Phase 2 outcome／State 不同）在 Chromium 驗證 Phase 2：Execute Test Point outcome（case-id query）、PASS／FAIL RATE、NOT UPDATED CASES／UPDATE COMPLETE、State 與 Outcome 圓餅下方 status → Rack → Case 清單與點選導航、R1–R5 State／Outcome 色塊、Test item × Rack outcome matrix（分類分段、Log reviewer）、各 Rack 分頁的卡片與清單、Insights 的 Cross-Rack title review（標題顯示 Phase 2）、頂端固定區塊——皆以 Phase 2 自己的資料正確運作（這些功能都以 `D.S.phase`／`D.phaseRacks()` 動態計算，非寫死 Phase 1）。
 - 修正：清單展開狀態（`D.S.breakdownOpen`）與 matrix 分類收合狀態原本兩個 Phase 共用，在 Phase 1 展開後切到 Phase 2 也會展開；改為依 Phase 分開保存（breakdown key 前綴 `phase1|`／`phase2|`，matrix 改用 `D.S.matrixCatCollapsedByPhase[phase]`）。Matrix 的排序／篩選與分組選擇維持兩個 Phase 共用。
 - 刻意保留為 Phase 1 專屬的：Execution Timeline 在資料較早結束時延伸到 2026-11-11（第 49 節以前的需求）；Bug List 與 MSFT-Misc Portal 為 Query 層級，兩個 Phase 共用。
+## 78. 2026-11-16 Failed／Blocked 測項的 Bug：Child vs Related（v1.14.0）
+
+- 依使用者確認：Failed 與 Blocked 分開統計（Execute Test Point outcome）；Related 只算 Case 上 `System.LinkTypes.Related` 指向 Work Item Type = Bug 的項目；原 Bug 區保留；Rack 卡片改為只算 Failed／Blocked，另以 ALL BUGS 保留全部範圍。
+- `D.runQuery` 讀 Test Case relations 時同時收集 Related link（`relatedIdsOf`），目標一併以 `workitemsbatch` 取欄位；Case 節點新增 `relatedBugs`（含 Title、State、Severity、Priority、Assigned To）。Child link 驗證流程不變（`bugs`，背景驗證完成後回填）。新增 `D.bugFromFields`，Child Bug 也帶 Assigned To。
+- `D.caseBugLinks(testCase)`：合併 Child 與 Related，同一 Case 上同一 Bug 兩種都有標為 `Child + Related`（同時計入 Child 與 Related）。`D.failBugReport(racks)`：每 Rack 的 Failed、Blocked、有／無 Bug、Child／Related／Child + Related／不重複 Bug 數，All Racks 跨 Rack 去重。範圍為該 Phase 全部 Case（不套用 Time range）。
+- Overview：新增 `Bugs on Failed / Blocked test items — Child vs Related, by Rack`（放在原 `Bug tracking — verified Test Case Child links` 上方）：7 張卡、Rack 統計表（Child／Related 比例條）、各 Rack 可展開明細（Outcome、Case、分類、Bug、Link、Bug State、Severity、Assigned To；篩選 Failed／Blocked／Child／Related／Child + Related／No bug）。
+- Rack 分頁：卡片 `CHILD BUGS`（原為所有 Case 的 Child Bug）改為 FAILED ITEMS、BLOCKED ITEMS、CHILD BUGS、RELATED BUGS（Failed／Blocked Case）＋ ALL BUGS（該 Rack 所有 Case 的 Child + Related）；新增同樣的明細表，原 Child Bug 清單保留在下方。
+- Insights：新增 `Bugs linked as both Child and Related`（`D.childRelatedOverlap`）：所有 Case、不分 outcome，列 Bug、State、Child link 所在 Rack · Case、Related link 所在 Rack · Case、是否同一 Case，供使用者確認重疊 Bug 的計算方式。
+- 新增 `tests/fail-bug-report.test.cjs`。

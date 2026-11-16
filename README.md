@@ -4,11 +4,13 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.13.19；本分支待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.14.0；本分支待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
 - Azure DevOps project：`Dev`
+
+**Failed／Blocked 測項的 Bug（Child vs Related）**：Overview 新增 `Bugs on Failed / Blocked test items` 區塊——統計卡（Failed、Blocked、Child Bugs、Related Bugs、Child + Related、Unique Bugs、無 Bug 的 Failed／Blocked）、Rack 1–5 統計表（Failed、Blocked、有／無 Bug、Child、Related、Child + Related、不重複 Bug，All Racks 跨 Rack 去重），以及各 Rack 可展開的 Failed／Blocked Case → Bug 明細（Link 標 Child／Related／Child + Related，可篩選）。Failed 與 Blocked 分開統計（Execute Test Point outcome）；Child = 已驗證的 Child link，Related = Case 上指向 Bug 的 Related link。各 Rack 分頁卡片改為 FAILED ITEMS、BLOCKED ITEMS、CHILD BUGS、RELATED BUGS（皆只算 Failed／Blocked Case）與 ALL BUGS（該 Rack 所有 Case 的 Child + Related，不分 outcome），並加入同樣的明細表；原有 verified Child link 的 Bug 區保留在下方。Insights 新增 `Bugs linked as both Child and Related` 清單。
 
 頁面頂端（標題列、Query／Data source／Time range 等控制列、Phase 1／Phase 2／Bug List／MSFT-Misc Portal 分頁）與各分頁的 summary 卡片固定置頂，只有下方的圖表與清單會捲動；視窗高度低於 560px 時改為一般捲動。
 
