@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.16.0，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.16.1，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1468,3 +1468,4 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
   - Failed 且無期間內 Bug → 格子紅底，`title` 滑鼠提示原因（含期間外舊 Bug 數）；Blocked 不要求掛 Bug。
 - UI：Phase 分頁右側新增 `Phase 1 Bug Links`、`Phase 2 Bug Links`（`D.S.view = 'links:phase1'／'links:phase2'`，任何 Query 都顯示）。內容：統計卡（Common、Common linked correctly、Rack-only、Failed without bug、Link type issues、Needs review、Not in Bug List）、Per Rack 表、測項 × Rack 表（依分類＋Log reviewer，掛錯的 C／R 紅框、Needs review 黃虛線框，可篩選）、Link type issues、Needs review、Not in the Bug List、Common Bugs、Rack-only Bugs。
 - Overview「Bugs found in this test」的缺漏格同樣改為紅底＋滑鼠提示（不再顯示文字標籤）；Overview 兩個 Bug 區塊保留。`D.inTestReport` rows 新增 `key`。新增 `tests/bug-link-check.test.cjs`。
+- （v1.16.1）修正 Bug List 的 `Linked Cases` 欄全部變成 `-`：原本 `D.bugCaseLinks` 只用通過 Child ↔ Parent ↔ History 三重驗證的 Child link（`bugInventory`），驗證未通過或仍在背景執行時整欄為空，且從不包含 Related link。改為列出兩個 Phase 中所有掛此 Bug 的 Case：任何 Child link（`childBugsRaw` ∪ `bugs`）與 Related link，每筆標示 C／R／C+R，Phase 2 加 `P2` 前綴；`LINKED TO CASES` 卡、搜尋、CSV／Excel／PDF 匯出同步採用。mock 重現：History 不回傳新增紀錄時，main 版每列皆為 `-`，修正後顯示 Rack · Case 與 link 類型。

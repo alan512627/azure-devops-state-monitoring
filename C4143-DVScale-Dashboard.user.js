@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.16.0
+// @version      1.16.1
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2317,16 +2317,25 @@
       D.S.bugList = { status: 'error', items: (D.S.bugList && D.S.bugList.items) || [], query: cfg, error: String((error && error.message) || error) };
     }
   };
+  // Every Case a Bug is linked to, as Child (any Child link, verified or not) or Related, across both Phases.
   D.bugCaseLinks = function () {
-    var map = {}, racks = D.phaseRacks('phase1').concat(D.phaseRacks('phase2'));
-    D.bugInventory(racks).forEach(function (entry) {
-      var key = String(entry.bug.id), list = map[key] = map[key] || [], seen = {};
-      list.forEach(function (link) { seen[link.caseId + '|' + link.rack] = 1; });
-      (entry.links || []).forEach(function (link) {
-        var k = link.testCase.id + '|' + link.rack.label; if (seen[k]) return; seen[k] = 1;
-        list.push({ caseId: link.testCase.id, rack: link.rack.label, title: link.testCase.title });
+    var map = {};
+    ['phase1', 'phase2'].forEach(function (phase) {
+      D.phaseRacks(phase).forEach(function (rack) {
+        D.collect(rack, 'Test Case').forEach(function (testCase) {
+          var kinds = {};
+          (testCase.childBugsRaw || []).concat(testCase.bugs || []).forEach(function (b) { (kinds[b.id] = kinds[b.id] || {}).child = true; });
+          (testCase.relatedBugs || []).forEach(function (b) { (kinds[b.id] = kinds[b.id] || {}).related = true; });
+          Object.keys(kinds).forEach(function (id) {
+            var list = map[id] = map[id] || [];
+            if (list.some(function (l) { return l.caseId === testCase.id; })) return;
+            var k = kinds[id];
+            list.push({ caseId: testCase.id, rack: rack.label, phase: D.phaseLabel(phase), title: testCase.title, link: k.child && k.related ? 'both' : k.child ? 'child' : 'related' });
+          });
+        });
       });
     });
+    Object.keys(map).forEach(function (id) { map[id].sort(function (a, b) { return String(a.phase).localeCompare(String(b.phase)) || String(a.rack).localeCompare(String(b.rack), undefined, { numeric: true }); }); });
     return map;
   };
   // Bug states get their own palette with clearly separated hues (the Case palette reuses blue/cyan/teal).
@@ -2353,7 +2362,7 @@
   D.BUG_EXPORT_HEADERS = ['Bug ID', 'Title', 'State', 'Reason', 'Severity', 'Priority', 'Assigned To', 'Created By', 'Created', 'Changed', 'Linked Cases (Rack · Case)', 'Tags', 'Area Path', 'URL'];
   D.bugExportRow = function (bug, caseLinks) {
     return [bug.id, bug.title, bug.state, bug.reason, bug.severity, bug.priority, bug.assignedTo && bug.assignedTo !== '-' ? bug.assignedTo : 'Unassigned', bug.createdBy && bug.createdBy !== '-' ? bug.createdBy : '',
-      D.fmt(bug.created), D.fmt(bug.changed), (caseLinks || []).map(function (l) { return l.rack + ' · #' + l.caseId; }).join('; '), bug.tags, bug.area, bug.url];
+      D.fmt(bug.created), D.fmt(bug.changed), (caseLinks || []).map(function (l) { return (l.phase === 'Phase 2' ? 'P2 ' : '') + l.rack + ' · #' + l.caseId + (l.link ? ' (' + (l.link === 'both' ? 'Child + Related' : l.link === 'child' ? 'Child' : 'Related') + ')' : ''); }).join('; '), bug.tags, bug.area, bug.url];
   };
   D.bugExportName = function (ext) { return D.reportPrefix() + '-Bug-List-' + D.reportStamp() + '.' + ext; };
   D.bugFilterLabel = function () {
@@ -2391,7 +2400,7 @@
         + '<td>' + (b.severity ? '<span class="chip" style="background:' + D.severityColor(b.severity) + '">' + esc(b.severity) + '</span>' : '-') + '</td>'
         + '<td class="n">' + esc(b.priority || '-') + '</td><td>' + esc(b.assignedTo && b.assignedTo !== '-' ? b.assignedTo : 'Unassigned') + '</td><td>' + esc(b.createdBy && b.createdBy !== '-' ? b.createdBy : '-') + '</td>'
         + '<td>' + esc(D.fmt(b.created)) + '</td><td>' + esc(D.fmt(b.changed)) + '</td>'
-        + '<td>' + esc((v.links || []).map(function (l) { return l.rack + ' · #' + l.caseId; }).join(', ') || '-') + '</td></tr>';
+        + '<td>' + esc((v.links || []).map(function (l) { return (l.phase === 'Phase 2' ? 'P2 ' : '') + l.rack + ' · #' + l.caseId + (l.link === 'both' ? ' C+R' : l.link === 'child' ? ' C' : ' R'); }).join(', ') || '-') + '</td></tr>';
     }).join('');
     var css = '@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:"Segoe UI",Roboto,"Noto Sans TC","Microsoft JhengHei",sans-serif;color:#111827;font-size:10px;margin:0}'
       + 'h1{font-size:18px;margin:0 0 2px}.meta{color:#4b5563;margin-bottom:10px}.cards{display:flex;gap:8px;margin-bottom:10px}.card{flex:1;border:1px solid #d1d5db;border-left:4px solid var(--c);border-radius:6px;padding:6px 10px}.card b{display:block;font-size:18px}.card span{color:#6b7280;font-size:9px;letter-spacing:.05em}'
@@ -2464,7 +2473,7 @@
     exportBox.appendChild(csvBtn); exportBox.appendChild(xlsxBtn); exportBox.appendChild(pdfBtn);
     toolbar.appendChild(search); toolbar.appendChild(stateSel); toolbar.appendChild(count); toolbar.appendChild(exportBox); box.appendChild(toolbar);
     var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'bug-list-table'), thead = D.el('thead'), hr = D.el('tr');
-    var cols = [['id', 'ID'], ['title', 'Title'], ['state', 'State'], ['severity', 'Severity'], ['priority', 'Priority'], ['assignedTo', 'Assigned To'], ['createdBy', 'Created By'], ['created', 'Created'], ['changed', 'Changed'], ['cases', 'Linked Cases (Rack · Case)']];
+    var cols = [['id', 'ID'], ['title', 'Title'], ['state', 'State'], ['severity', 'Severity'], ['priority', 'Priority'], ['assignedTo', 'Assigned To'], ['createdBy', 'Created By'], ['created', 'Created'], ['changed', 'Changed'], ['cases', 'Linked Cases (Rack · Case · Child/Related)']];
     var sort = D.S.bugSort || { key: 'id', dir: -1 };
     cols.forEach(function (col) {
       var th = D.el('th', 'sortable', col[1] + (sort.key === col[0] ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''));
@@ -2498,7 +2507,10 @@
         tr.appendChild(D.el('td', null, D.fmt(bug.created))); tr.appendChild(D.el('td', null, D.fmt(bug.changed)));
         var linkCell = D.el('td', 'bug-cases');
         if (!caseLinks.length) linkCell.textContent = '-';
-        caseLinks.forEach(function (l) { var ca = D.el('a', null, l.rack + ' · #' + l.caseId); ca.href = D.wiUrl(l.caseId); ca.target = '_blank'; ca.rel = 'noopener'; ca.title = l.title; linkCell.appendChild(ca); });
+        caseLinks.forEach(function (l) {
+          var wrapL = D.el('span', 'bug-case-link'), ca = D.el('a', null, (l.phase === 'Phase 2' ? 'P2 · ' : '') + l.rack + ' · #' + l.caseId); ca.href = D.wiUrl(l.caseId); ca.target = '_blank'; ca.rel = 'noopener'; ca.title = l.phase + ' · ' + (l.title || '');
+          wrapL.appendChild(ca); wrapL.appendChild(D.el('span', 'itb-kind fb-' + l.link, l.link === 'both' ? 'C+R' : l.link === 'child' ? 'C' : 'R')); linkCell.appendChild(wrapL);
+        });
         tr.appendChild(linkCell); tbody.appendChild(tr);
       });
       if (!shown) { var er = D.el('tr'), ec = D.el('td', 'empty', 'No Bugs match the filter.'); ec.colSpan = cols.length; er.appendChild(ec); tbody.appendChild(er); }
@@ -2574,7 +2586,7 @@
   D.CSS += "\n.phase-tab[data-view='bugs']{--phase-accent:#fb923c}.phase-tab[data-view='portal']{--phase-accent:#34d399}.phase-tab.extra-tab{flex:0 1 220px}.phase-tab.portal-sep{margin-left:auto}@media(max-width:620px){.phase-tab.portal-sep{margin-left:0}}"
     + "\n.extra-view{padding:16px 20px 28px;min-width:0}.extra-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px}.extra-head h2{margin:0;font-size:20px;color:#e2e8f0}.extra-head a{color:#93c5fd}.extra-head button{margin-left:auto}"
     + "\n.bug-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}.bug-toolbar input{flex:1 1 280px;min-width:200px;padding:7px 10px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.bug-toolbar select{min-width:160px}"
-    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1320px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{display:inline-block;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
+    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1320px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{white-space:nowrap}.bug-case-link{display:inline-flex;align-items:center;gap:2px;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
     + "\n.portal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.portal-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:#111d33;border:1px solid #253858;border-left:4px solid #34d399}.portal-card.unset{border-left-color:#fbbf24}"
     + "\n.portal-title{font-size:15px;font-weight:700;color:#e2e8f0}.portal-host{font-size:12px;color:#93c5fd;word-break:break-all}.portal-card.unset .portal-host{color:#fbbf24}.portal-actions{display:flex;gap:8px;margin-top:6px;align-items:center}.portal-actions button{width:auto}"
     + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";
