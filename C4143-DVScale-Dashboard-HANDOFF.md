@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.15.1，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.16.2，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1457,3 +1457,16 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 卡片：Test items、Failed（測項 × Rack 格數）、Failed without in-test bug、In-test bugs linked、Also in Bug List、Linked not in Bug List、Bug List only。篩選：All／Failed without in-test bug／Has in-test bugs／No in-test bugs；CSV 匯出每測項各 Rack 的 outcome 與期間內 Bug。
 - 資料：核心欄位加入 `System.CreatedBy`；Related 讀取加入 `System.CreatedDate`；Bug 物件新增 `created`、`createdBy`。Bug List 載入完成後會觸發 Dashboard 重新整理，讓比對欄位更新。新增 `tests/in-test-bugs.test.cjs`。
 - （v1.15.1）新增 **By Bug** 表：每個期間內 Bug 一列，R1–R5 欄列出該 Rack 掛此 Bug 的 Case（outcome＋link 類型），並統計出現的 Rack 數、Case 數、測項數與是否在 Bug List，依 Rack 數由多到少排序；上方摘要「n Bug(s) on k Racks」。說明「不重複計算」只用於總數（卡片改名 `IN-TEST BUGS (UNIQUE)`、每列 `Unique in-test bugs (all Racks)`），Rack 格子與 By Bug 表仍逐 Rack 呈現。`D.inTestReport` 回傳新增 `byBug`（`racks`、`rackCount`、`caseCount`、`itemCount`、`inList`）。
+
+## 82. 2026-11-17 Phase 1／Phase 2 Bug Links 分頁：團隊掛法規則檢查（v1.16.0）
+
+- 團隊規則（使用者確認）：同一 Bug 出現在 2 個以上 Rack → Rack 1 掛 Child、其他 Rack 掛 Related；只出現在一個 Rack → 該 Rack 掛 Child；outcome = Failed 的測項都應掛 Bug。Dashboard 只讀取已掛的 link，不寫入 ADO。
+- 判斷（`D.bugLinkCheck(racks)`，每次載入依目前 link 與 outcome 動態重算，只看 `D.TEST_WINDOW` 期間建立的 Bug，Child = 任何 Child link）：
+  - Bug 出現的 Rack = 有掛此 Bug（Child 或 Related）的 Rack。
+  - Common bug：有掛在 Rack 1 → 應掛 Child 的 Rack = R1；沒掛在 Rack 1 且該測項 R1 Case 不是 Failed（Passed／Active／Blocked／NA／無 Case）→ 有此 Bug 的最小號 Rack；R1 Case 是 Failed 卻沒掛此 Bug → **Needs review**（不判違規，列出 R1 Case 目前掛的 Bug 供人工判讀）。其他 Rack 應為 Related。
+  - Rack-only bug：該 Rack 應為 Child（只掛 Related 為違規）。
+  - Failed 且無期間內 Bug → 格子紅底，`title` 滑鼠提示原因（含期間外舊 Bug 數）；Blocked 不要求掛 Bug。
+- UI：Phase 分頁右側新增 `Phase 1 Bug Links`、`Phase 2 Bug Links`（`D.S.view = 'links:phase1'／'links:phase2'`，任何 Query 都顯示）。內容：統計卡（Common、Common linked correctly、Rack-only、Failed without bug、Link type issues、Needs review、Not in Bug List）、Per Rack 表、測項 × Rack 表（依分類＋Log reviewer，掛錯的 C／R 紅框、Needs review 黃虛線框，可篩選）、Link type issues、Needs review、Not in the Bug List、Common Bugs、Rack-only Bugs。
+- Overview「Bugs found in this test」的缺漏格同樣改為紅底＋滑鼠提示（不再顯示文字標籤）；Overview 兩個 Bug 區塊保留。`D.inTestReport` rows 新增 `key`。新增 `tests/bug-link-check.test.cjs`。
+- （v1.16.1）修正 Bug List 的 `Linked Cases` 欄全部變成 `-`：原本 `D.bugCaseLinks` 只用通過 Child ↔ Parent ↔ History 三重驗證的 Child link（`bugInventory`），驗證未通過或仍在背景執行時整欄為空，且從不包含 Related link。改為列出兩個 Phase 中所有掛此 Bug 的 Case：任何 Child link（`childBugsRaw` ∪ `bugs`）與 Related link，每筆標示 C／R／C+R，Phase 2 加 `P2` 前綴；`LINKED TO CASES` 卡、搜尋、CSV／Excel／PDF 匯出同步採用。mock 重現：History 不回傳新增紀錄時，main 版每列皆為 `-`，修正後顯示 Rack · Case 與 link 類型。
+- （v1.16.2）Bug List 改依 **Bug 本身的 link** 顯示 Case：`D.loadBugList` 另以 `$expand: relations` 讀取每條 Bug 的 relations，`Hierarchy-Reverse`（Parent）→ `Parent Test Case` 欄；`Hierarchy-Forward`（Child）與 `Related` → `Child / Related Test Cases` 欄（標 C／R）。只顯示 Test Case：目標在 Dashboard Query 內直接判定，其餘以基本欄位（WorkItemType、Title、TeamProject）查詢。團隊規則為每條 Bug 至少一條 Parent Test Case，沒有時標紅 `No parent Case`（Parent 若是其他類型會在 tooltip 說明），並新增 `WITH PARENT CASE`／`NO PARENT CASE` 卡與 `No parent Test Case` 篩選；CSV／Excel／PDF 匯出改為兩欄。Bug relations 讀取失敗時退回 Case 端的 link（`D.bugCaseLinks`）。新增 `D.caseIndexAll`、`D.bugLinkedCases`、`D.caseLinkLabel`。

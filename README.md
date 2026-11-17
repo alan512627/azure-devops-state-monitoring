@@ -4,11 +4,13 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.15.1；本分支待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.16.2；本分支待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
 - Azure DevOps project：`Dev`
+
+**Phase 1／Phase 2 Bug Links 分頁（掛法檢查）**：Phase 分頁右側各一個分頁，只讀取已掛好的 link（不寫入 ADO），每次載入依目前的 link 與 outcome 動態重算，只看 10/08–11/13 建立的 Bug。規則：同一 Bug 掛在 2 個以上 Rack 為 common bug——有掛在 Rack 1 時 Rack 1 應為 Child、其他 Rack 為 Related；沒掛在 Rack 1 且 Rack 1 該測項不是 Failed（Passed／Active／Blocked）時，由有此 Bug 的最小號 Rack 掛 Child；Rack 1 是 Failed 卻沒掛此 Bug 時列入 **Needs review** 由人工判讀。只出現在一個 Rack 的 Bug 應為 Child。Failed 但沒掛期間內 Bug 的格子標紅，滑鼠移過去顯示原因；Blocked 不要求掛 Bug。內容：統計卡、各 Rack 統計、測項 × Rack 表（掛錯的 link 紅框）、Link type issues、Needs review、Not in the Bug List（例如被客戶轉走）、Common Bugs、Rack-only Bugs。
 
 **本次測試發現的 Bug（10/08–11/13）**：Overview 新增 `Bugs found in this test — by test item × Rack`。規則：測試期間 2026-10-08～2026-11-13（台北時間，依 Bug Created Date，可在 `D.QUERY_EXTRAS[...].testWindow` 或 `D.TEST_WINDOW` 調整）；Bug 以 Child（任何 Child link，不要求 History 驗證）或 Related link 掛在 Case 上即計入；每列是一個測項（依標題跨 Rack 對應），R1–R5 每格顯示該 Rack 的 outcome 與期間內的 Bug（C／R／C+R 標示 link 類型，期間外的只顯示 `+n older`），Failed 但沒有期間內 Bug 的格子標 `missing bug`；依分類分段並顯示 Log reviewer。與 Bug List query 以 Bug ID 比對：黃色 Bug ID 表示不在 Bug List，下方另列「已掛 Case 但不在 Bug List」與「Bug List 中期間內建立但未掛任何 Case」。另有 **By Bug** 表：每個期間內 Bug 一列，顯示在 R1–R5 哪些 Rack 出現（該 Rack 的 Case、outcome、link 類型）、出現的 Rack 數／Case 數／測項數、是否在 Bug List，依出現 Rack 數排序。去重只用於總數（卡片與每列的 Unique 欄），各 Rack 格子與 By Bug 表仍逐 Rack 顯示。可篩選、下載 CSV。
 
@@ -115,7 +117,7 @@ v1.9.0 新增左側 `Insights` 分頁：
 
 - **真實 Pass／Fail**：每個 Case 的主要 outcome 以 Azure DevOps Test Plans「Execute」頁的 Test Point outcome 為準（以 `POST _apis/test/points` 依 Case ID 跨所有 Test Plan／Suite 查詢）；只呈現 `Passed`、`Failed`、`Blocked`、`Not Applicable`、`Active` 五種固定分類，分別使用綠、紅、橘、黃、靛色。Pass／Fail Rate 只顯示百分比，分母為選定時間範圍內的全部 Case，與 Outcome 圓餅圖同一基準。
 - **快速 Re-query**：核心 Query、Rack、Case 與狀態先完成並呈現 Overview／Rack；Child Bug History 驗證與 Test Point outcome 會在背景補載，完成後只更新相關統計。Core Work Item、Relation 與 Child Work Item 批次採有限並行，避免循序等待又不造成無限制 API 壓力。背景完成前的卡片不會被當作最終 Bug／Test Result 統計。
-- **Bug List 分頁**（Phase 2 旁）：唯讀執行 C4143 Bug query（`6f1d299f-eaa4-4d06-9d7f-0b6161f04788`），顯示 Total／Open／Resolved／Closed／Linked to Cases 卡片、State 圓餅圖、Severity 長條圖，以及可搜尋（含建立者）、依 State 篩選、點欄位排序的 Bug 表（含 `Created By` 建立者欄）；`Linked Cases` 欄列出已驗證 Child link 的 Rack · Case。表格右上可 `Download CSV`、`Download Excel`（Bugs＋Summary 兩個工作表，ID 與 URL 為超連結）、`Download PDF`（A4 橫向，含統計卡、State／Severity 圖與 Bug 表；以瀏覽器列印對話框輸出，目的地選「另存為 PDF」）；三者皆匯出目前篩選與排序後的 Bug。
+- **Bug List 分頁**（Phase 2 旁）：唯讀執行 C4143 Bug query（`6f1d299f-eaa4-4d06-9d7f-0b6161f04788`），顯示 Total／Open／Resolved／Closed／Linked to Cases 卡片、State 圓餅圖、Severity 長條圖，以及可搜尋（含建立者）、依 State 篩選、點欄位排序的 Bug 表（含 `Created By` 建立者欄）；依 Bug 本身的 link 顯示兩欄：`Parent Test Case`（Bug 的 Parent link 指向的 Test Case，每條 Bug 應至少有一條；沒有時標紅 `No parent Case`，可用 State 選單的 `No parent Test Case` 篩選）與 `Child / Related Test Cases`（標 C／R）。不在目前 Query 的 Case 以其 Project 名稱標示；兩個 Phase 皆列，Phase 2 加 `P2` 前綴。卡片 `WITH PARENT CASE`、`NO PARENT CASE`；匯出同樣分兩欄。表格右上可 `Download CSV`、`Download Excel`（Bugs＋Summary 兩個工作表，ID 與 URL 為超連結）、`Download PDF`（A4 橫向，含統計卡、State／Severity 圖與 Bug 表；以瀏覽器列印對話框輸出，目的地選「另存為 PDF」）；三者皆匯出目前篩選與排序後的 Bug。
 - **MSFT-Misc Portal 分頁**：C4143 Outline（SharePoint）、Test plan query、Test Plan、Bug query、Azure storage Logs container、CRC-SDK-Repo 連結卡；每張卡可 Edit／Reset，修改只存在本機瀏覽器（localStorage）。
 - **Execution Timeline**：Phase 1 Execution Timeline 在資料較早結束時至少延伸至 2026-11-13，最早日期 bar 與左側分格線保留小間距。
 - **Re-query timing**：完成後的提示會回報 core 與 supplemental 的秒數，方便區分主查詢與背景驗證的實際延遲。
