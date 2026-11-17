@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.16.2
+// @version      1.16.3
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -3278,8 +3278,8 @@
   // Rules (recomputed on every load from the current links and outcomes; only Bugs created in the test window):
   //  - A Bug linked on 2+ Racks is a common Bug. Child goes on Rack 1 when the Bug is linked there; otherwise, when the
   //    Rack 1 Case is not Failed (Passed / Active / Blocked / NA / no Case), Child goes on the lowest-numbered Rack where the
-  //    Bug is linked. Every other Rack: Related. If the Rack 1 Case is Failed but this Bug is not linked on Rack 1, the Bug
-  //    is listed for manual review (Rack 1 may have the same issue under another Bug or a missing link).
+  //    Bug is linked. Every other Rack: Related. If the Rack 1 Case is Failed but this Bug is not linked on Rack 1, Rack 1
+  //    has its own (different) Bugs, so this Bug is Child on every Rack where it is linked.
   //  - A Bug linked on one Rack only: Child on that Rack.
   //  - A Failed Case with no Bug from the window is "missing bug". Blocked is not required to have a Bug.
   D.bugLinkCheck = function (racks) {
@@ -3296,7 +3296,11 @@
       if (idx.length >= 2) {
         var r1Failed = Object.keys(e.items).some(function (k) { var c = rowByKey[k] && rowByKey[k].cells[0]; return c && c.outcome === 'Failed'; });
         if (idx[0] === 0) entry.anchor = 0;
-        else if (r1Failed) { entry.status = 'review'; entry.expected = 'R1 Case is Failed — is this the same issue on Rack 1?'; }
+        else if (r1Failed) {
+          // Rack 1 is Failed with its own (different) Bugs, so this Bug is a separate issue: Child on every Rack that has it.
+          entry.perRackChild = true; entry.expected = 'Child on ' + idx.map(rl).join(' / ') + ' (R1 Failed with other Bugs)';
+          idx.forEach(function (i) { expectedOf[e.bug.id + '|' + i] = 'child'; if (!has(i, 'child')) entry.problems.push('Only Related on ' + rl(i) + ' — should be Child'); });
+        }
         else entry.anchor = idx[0];
         if (entry.anchor !== null) {
           entry.expected = 'Child on ' + rl(entry.anchor) + (entry.anchor ? ' (R1 not Failed)' : '') + ', Related on ' + idx.filter(function (i) { return i !== entry.anchor; }).map(rl).join(' / ');
@@ -3329,10 +3333,10 @@
     if (!D.S.testResults || D.S.testResults.status !== 'ok') { wrap.appendChild(D.el('div', 'empty', 'Waiting for Test Point outcomes …')); return wrap; }
     var chk = D.bugLinkCheck(racks), rep = chk.report;
     function rl(i) { return 'R' + (D.rackNumber(racks[i]) || i + 1); }
-    wrap.appendChild(D.el('div', 'small fb-note', 'Only Bugs created ' + rep.range.label + ' (Taipei) · Recomputed from the current links and outcomes on every load · Common Bug (linked on 2+ Racks): Child on Rack 1, or — when Rack 1 is not Failed and the Bug is not linked there — Child on the lowest-numbered Rack; Related on the other Racks · Rack-only Bug: Child on that Rack · Failed without a Bug is marked red · Blocked does not need a Bug · Child = any Child link.'));
+    wrap.appendChild(D.el('div', 'small fb-note', 'Only Bugs created ' + rep.range.label + ' (Taipei) · Recomputed from the current links and outcomes on every load · Common Bug (linked on 2+ Racks): Child on Rack 1, or — when Rack 1 is not Failed and the Bug is not linked there — Child on the lowest-numbered Rack; Related on the other Racks · When Rack 1 is Failed and the Bug is not linked on Rack 1, it is a different issue: Child on each Rack that has it · Rack-only Bug: Child on that Rack · Failed without a Bug is marked red · Blocked does not need a Bug · Child = any Child link.'));
     var cards = D.el('div', 'cards fb-cards');
     [['COMMON BUGS (2+ RACKS)', chk.common.length, '#a78bfa'], ['COMMON · LINKED CORRECTLY', chk.commonOk, '#34d399'], ['RACK-ONLY BUGS', chk.single.length, '#60a5fa'],
-      ['FAILED WITHOUT BUG', chk.missing, '#f87171'], ['LINK TYPE ISSUES', chk.issues.length, '#fb923c'], ['NEEDS REVIEW', chk.review.length, '#fbbf24'],
+      ['FAILED WITHOUT BUG', chk.missing, '#f87171'], ['LINK TYPE ISSUES', chk.issues.length, '#fb923c'],
       ['NOT IN BUG LIST', rep.bugListReady ? rep.notInList.length : '…', '#fde68a']].forEach(function (c) { cards.appendChild(D.card(c[0], c[1], c[2])); });
     wrap.appendChild(cards);
     // Per Rack
@@ -3348,7 +3352,7 @@
     // Test item × Rack
     var listIds = {}; ((D.S.bugList && D.S.bugList.items) || []).forEach(function (b) { listIds[b.id] = 1; });
     var mb = D.box('Test item × Rack — red = Failed without a Bug'), filterSel = D.el('select'), filter = D.S.linkCheckFilter || 'all', bar = D.el('div', 'bug-toolbar');
-    [['all', 'All test items'], ['missing', 'Has Failed without bug'], ['issue', 'Has link type issue'], ['review', 'Needs review']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; filterSel.appendChild(opt); });
+    [['all', 'All test items'], ['missing', 'Has Failed without bug'], ['issue', 'Has link type issue']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; filterSel.appendChild(opt); });
     filterSel.value = filter; bar.appendChild(filterSel); mb.appendChild(bar);
     var issueIds = {}, reviewIds = {}; chk.issues.forEach(function (x) { issueIds[x.e.bug.id] = 1; }); chk.review.forEach(function (x) { reviewIds[x.e.bug.id] = 1; });
     var ms = D.el('div', 'table-scroll'), mt = D.el('table', 'itb-table'), mh = D.el('tr'), mth = D.el('thead');
@@ -3357,7 +3361,6 @@
     function keep(row) {
       if (filter === 'missing') return row.gaps > 0;
       if (filter === 'issue') return row.bugs.some(function (b) { return issueIds[b.id]; });
-      if (filter === 'review') return row.bugs.some(function (b) { return reviewIds[b.id]; });
       return true;
     }
     (D.categoryNames ? D.categoryNames() : ['']).forEach(function (name) {
@@ -3420,12 +3423,6 @@
     var checkCol = ['Check', function (x) { return D.el('td', x.status === 'issue' ? 'conv-issue' : x.status === 'review' ? 'lc-review-text' : 'conv-ok', x.status === 'review' ? 'Needs review' : x.problems.length ? x.problems.join('; ') : 'OK'); }];
     var grid = D.el('div');
     grid.appendChild(bugBox('Link type issues', chk.issues, [expectedCol, ['Problem', function (x) { return D.el('td', 'conv-issue', x.problems.join('; ')); }]], 'Red tags are links that do not match the rule.'));
-    grid.appendChild(bugBox('Needs review — Rack 1 Failed but this common Bug is not linked on Rack 1', chk.review, [['What to check', function (x) {
-      var row = null; Object.keys(x.e.items).some(function (k) { row = rep.rows.filter(function (r) { return r.key === k; })[0]; return !!row; });
-      var c = row && row.cells[0], td = D.el('td');
-      if (c) { td.appendChild(document.createTextNode('R1 ')); td.appendChild(D.caseAnchor(c.testCase)); td.appendChild(document.createTextNode(c.inTest.length ? ' has ' + c.inTest.map(function (l) { return '#' + l.bug.id; }).join(', ') : ' has no Bug')); }
-      return td;
-    }]], 'Rack 1 is Failed on the same test item. Decide whether Rack 1 has the same issue (then link this Bug on Rack 1 as Child) or a different one.'));
     wrap.appendChild(grid);
     wrap.appendChild(bugBox('Not in the Bug List', rep.notInList.map(function (x) { return { e: x }; }), [], rep.bugListReady ? 'Bugs created in the window and linked to Cases but missing from the Bug List query (e.g. moved by the customer).' : 'Bug List is still loading …'));
     wrap.appendChild(bugBox('Common Bugs (2+ Racks)', chk.common.slice().sort(function (a, b) { return b.idx.length - a.idx.length || (+a.e.bug.id - +b.e.bug.id); }), [expectedCol, checkCol]));
