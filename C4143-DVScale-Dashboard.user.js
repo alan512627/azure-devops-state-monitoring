@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.16.3
+// @version      1.16.4
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -3276,10 +3276,8 @@
     + "\n.itb-unique a{margin-right:4px}.itb-cmp{margin-top:12px}.itb-bybug{margin-top:14px}.itb-bybug h4{margin:0 0 4px;font-size:12px;color:#cbd5e1}.itb-bybug .itb-table{margin-top:6px}.itb-cmp-box{border:1px solid #1e2b45;border-radius:8px;padding:8px 10px;background:#0f1a2e}.itb-cmp-box h4{margin:0 0 6px;font-size:12px;color:#cbd5e1}";
   // Bug link check (per Phase tab). Reads the links the team has already placed; nothing is written to Azure DevOps.
   // Rules (recomputed on every load from the current links and outcomes; only Bugs created in the test window):
-  //  - A Bug linked on 2+ Racks is a common Bug. Child goes on Rack 1 when the Bug is linked there; otherwise, when the
-  //    Rack 1 Case is not Failed (Passed / Active / Blocked / NA / no Case), Child goes on the lowest-numbered Rack where the
-  //    Bug is linked. Every other Rack: Related. If the Rack 1 Case is Failed but this Bug is not linked on Rack 1, Rack 1
-  //    has its own (different) Bugs, so this Bug is Child on every Rack where it is linked.
+  //  - A Bug linked on 2+ Racks is a common Bug. Child goes on Rack 1 when the Bug is linked there; otherwise on the lowest-numbered
+  //    Rack where the Bug is linked (whatever the Rack 1 outcome). Every other Rack: Related.
   //  - A Bug linked on one Rack only: Child on that Rack.
   //  - A Failed Case with no Bug from the window is "missing bug". Blocked is not required to have a Bug.
   D.bugLinkCheck = function (racks) {
@@ -3294,16 +3292,10 @@
       var has = function (i, kind) { return (e.racks[i] || []).some(function (h) { return kind === 'child' ? h.link !== 'related' : h.link !== 'child'; }); };
       var entry = { e: e, idx: idx, problems: [], status: 'ok', anchor: null, expected: '' };
       if (idx.length >= 2) {
-        var r1Failed = Object.keys(e.items).some(function (k) { var c = rowByKey[k] && rowByKey[k].cells[0]; return c && c.outcome === 'Failed'; });
-        if (idx[0] === 0) entry.anchor = 0;
-        else if (r1Failed) {
-          // Rack 1 is Failed with its own (different) Bugs, so this Bug is a separate issue: Child on every Rack that has it.
-          entry.perRackChild = true; entry.expected = 'Child on ' + idx.map(rl).join(' / ') + ' (R1 Failed with other Bugs)';
-          idx.forEach(function (i) { expectedOf[e.bug.id + '|' + i] = 'child'; if (!has(i, 'child')) entry.problems.push('Only Related on ' + rl(i) + ' — should be Child'); });
-        }
-        else entry.anchor = idx[0];
+        // Child on Rack 1 when the Bug is linked there; otherwise on the lowest-numbered Rack that has it. Related elsewhere.
+        entry.anchor = idx[0];
         if (entry.anchor !== null) {
-          entry.expected = 'Child on ' + rl(entry.anchor) + (entry.anchor ? ' (R1 not Failed)' : '') + ', Related on ' + idx.filter(function (i) { return i !== entry.anchor; }).map(rl).join(' / ');
+          entry.expected = 'Child on ' + rl(entry.anchor) + (entry.anchor ? ' (not on R1 — lowest Rack)' : '') + ', Related on ' + idx.filter(function (i) { return i !== entry.anchor; }).map(rl).join(' / ');
           if (!has(entry.anchor, 'child')) entry.problems.push('No Child on ' + rl(entry.anchor));
           idx.forEach(function (i) {
             expectedOf[e.bug.id + '|' + i] = i === entry.anchor ? 'child' : 'related';
@@ -3333,7 +3325,7 @@
     if (!D.S.testResults || D.S.testResults.status !== 'ok') { wrap.appendChild(D.el('div', 'empty', 'Waiting for Test Point outcomes …')); return wrap; }
     var chk = D.bugLinkCheck(racks), rep = chk.report;
     function rl(i) { return 'R' + (D.rackNumber(racks[i]) || i + 1); }
-    wrap.appendChild(D.el('div', 'small fb-note', 'Only Bugs created ' + rep.range.label + ' (Taipei) · Recomputed from the current links and outcomes on every load · Common Bug (linked on 2+ Racks): Child on Rack 1, or — when Rack 1 is not Failed and the Bug is not linked there — Child on the lowest-numbered Rack; Related on the other Racks · When Rack 1 is Failed and the Bug is not linked on Rack 1, it is a different issue: Child on each Rack that has it · Rack-only Bug: Child on that Rack · Failed without a Bug is marked red · Blocked does not need a Bug · Child = any Child link.'));
+    wrap.appendChild(D.el('div', 'small fb-note', 'Only Bugs created ' + rep.range.label + ' (Taipei) · Recomputed from the current links and outcomes on every load · Common Bug (linked on 2+ Racks): Child on Rack 1, or — when the Bug is not linked on Rack 1 — Child on the lowest-numbered Rack that has it; Related on the other Racks · Rack-only Bug: Child on that Rack · Failed without a Bug is marked red · Blocked does not need a Bug · Child = any Child link.'));
     var cards = D.el('div', 'cards fb-cards');
     [['COMMON BUGS (2+ RACKS)', chk.common.length, '#a78bfa'], ['COMMON · LINKED CORRECTLY', chk.commonOk, '#34d399'], ['RACK-ONLY BUGS', chk.single.length, '#60a5fa'],
       ['FAILED WITHOUT BUG', chk.missing, '#f87171'], ['LINK TYPE ISSUES', chk.issues.length, '#fb923c'],
