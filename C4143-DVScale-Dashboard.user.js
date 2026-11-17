@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.16.1
+// @version      1.16.2
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2312,11 +2312,56 @@
           url: cfg.org.replace(/\/+$/, '') + '/' + encodeURIComponent(cfg.project) + '/_workitems/edit/' + w.id
         };
       }).filter(function (item) { return !item.type || /bug/i.test(item.type); });
+      // Each Bug's own links: Parent (Hierarchy-Reverse), Child (Hierarchy-Forward) and Related, to Test Cases only.
+      try {
+        var relPages = await D.mapLimit(batches, 3, function (batch) {
+          return D.apiFetch(apiBase + 'workitemsbatch?api-version=6.0', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: batch, '$expand': 'relations', errorPolicy: 'Omit' }) });
+        });
+        var relOf = {}, targets = {}, known = D.caseIndexAll();
+        relPages.forEach(function (page) { (page.value || []).forEach(function (w) {
+          if (!w) return;
+          relOf[w.id] = (w.relations || []).map(function (r) {
+            var kind = r.rel === 'System.LinkTypes.Hierarchy-Reverse' ? 'parent' : r.rel === 'System.LinkTypes.Hierarchy-Forward' ? 'child' : r.rel === 'System.LinkTypes.Related' ? 'related' : '';
+            var tid = kind ? D.relationWorkItemId(r) : null; if (!tid) return null;
+            if (!known[tid]) targets[tid] = 1;
+            return { id: tid, link: kind };
+          }).filter(Boolean);
+        }); });
+        var unknown = Object.keys(targets).map(Number), info = {}, uChunks = [];
+        for (var u = 0; u < unknown.length; u += 200) uChunks.push(unknown.slice(u, u + 200));
+        var uPages = await D.mapLimit(uChunks, 3, function (chunk) {
+          return D.apiFetch(apiBase + 'workitemsbatch?api-version=6.0', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: ['System.Id', 'System.WorkItemType', 'System.Title', 'System.TeamProject'], errorPolicy: 'Omit' }) });
+        });
+        uPages.forEach(function (page) { (page.value || []).forEach(function (w) { if (w && w.fields) info[w.id] = { type: w.fields['System.WorkItemType'], title: w.fields['System.Title'], project: w.fields['System.TeamProject'] }; }); });
+        items.forEach(function (item) {
+          var rels = relOf[item.id]; if (!rels) return;
+          var isCase = function (r) { return known[r.id] || (info[r.id] && info[r.id].type === 'Test Case'); };
+          var dec = function (r) { var k = known[r.id], i = info[r.id] || {}; return { id: r.id, link: r.link, title: k ? k.title : i.title || '', project: i.project || '' }; };
+          item.relCases = { parent: rels.filter(function (r) { return r.link === 'parent' && isCase(r); }).map(dec), other: rels.filter(function (r) { return r.link !== 'parent' && isCase(r); }).map(dec),
+            parentOther: rels.filter(function (r) { return r.link === 'parent' && !isCase(r); }).map(function (r) { var i = info[r.id] || {}; return { id: r.id, type: i.type || '?', title: i.title || '' }; }) };
+        });
+      } catch (relError) { D.S.bugListRelWarning = 'Bug links could not be read: ' + String((relError && relError.message) || relError); }
       D.S.bugList = { status: 'ok', items: items, query: cfg, loadedAt: new Date().toISOString() };
     } catch (error) {
       D.S.bugList = { status: 'error', items: (D.S.bugList && D.S.bugList.items) || [], query: cfg, error: String((error && error.message) || error) };
     }
   };
+  D.caseIndexAll = function () {
+    var map = {};
+    ['phase1', 'phase2'].forEach(function (phase) { D.phaseRacks(phase).forEach(function (rack) { D.collect(rack, 'Test Case').forEach(function (c) { map[c.id] = { id: c.id, title: c.title, rack: rack.label, phase: D.phaseLabel(phase) }; }); }); });
+    return map;
+  };
+  // Test Cases linked to a Bug, from the Bug's own links: Parent (expected exactly one) and Child / Related.
+  // Falls back to the Case-side links when the Bug's relations could not be read.
+  D.bugLinkedCases = function (bug, fallback, index) {
+    index = index || D.caseIndexAll();
+    function dec(r) { var k = index[r.id] || {}; return { caseId: r.id, link: r.link, title: k.title || r.title || '', rack: k.rack || '', phase: k.phase || '', project: r.project || '' }; }
+    if (bug.relCases) return { parent: bug.relCases.parent.map(dec), other: bug.relCases.other.map(dec), parentOther: bug.relCases.parentOther || [], source: 'bug' };
+    var list = (fallback || {})[String(bug.id)] || [];
+    return { parent: list.filter(function (l) { return l.link !== 'related'; }).map(function (l) { return Object.assign({}, l, { link: 'parent' }); }),
+      other: list.filter(function (l) { return l.link !== 'child'; }).map(function (l) { return Object.assign({}, l, { link: 'related' }); }), parentOther: [], source: 'case' };
+  };
+  D.caseLinkLabel = function (l) { return (l.rack ? (l.phase === 'Phase 2' ? 'P2 · ' : '') + l.rack + ' · ' : (l.project ? l.project + ' · ' : 'Not in query · ')) + '#' + l.caseId; };
   // Every Case a Bug is linked to, as Child (any Child link, verified or not) or Related, across both Phases.
   D.bugCaseLinks = function () {
     var map = {};
@@ -2359,10 +2404,12 @@
     return '#94a3b8';
   };
   // Bug List exports (current filter and sort): CSV, Excel (.xlsx) and a print-ready PDF.
-  D.BUG_EXPORT_HEADERS = ['Bug ID', 'Title', 'State', 'Reason', 'Severity', 'Priority', 'Assigned To', 'Created By', 'Created', 'Changed', 'Linked Cases (Rack · Case)', 'Tags', 'Area Path', 'URL'];
+  D.BUG_EXPORT_HEADERS = ['Bug ID', 'Title', 'State', 'Reason', 'Severity', 'Priority', 'Assigned To', 'Created By', 'Created', 'Changed', 'Parent Test Case', 'Child / Related Test Cases', 'Tags', 'Area Path', 'URL'];
   D.bugExportRow = function (bug, caseLinks) {
+    var c = caseLinks && !Array.isArray(caseLinks) ? caseLinks : { parent: (caseLinks || []).filter(function (l) { return l.link !== 'related'; }), other: (caseLinks || []).filter(function (l) { return l.link === 'related'; }) };
+    var fmtL = function (l) { return D.caseLinkLabel(l) + (l.link && l.link !== 'parent' ? ' (' + (l.link === 'child' ? 'Child' : 'Related') + ')' : ''); };
     return [bug.id, bug.title, bug.state, bug.reason, bug.severity, bug.priority, bug.assignedTo && bug.assignedTo !== '-' ? bug.assignedTo : 'Unassigned', bug.createdBy && bug.createdBy !== '-' ? bug.createdBy : '',
-      D.fmt(bug.created), D.fmt(bug.changed), (caseLinks || []).map(function (l) { return (l.phase === 'Phase 2' ? 'P2 ' : '') + l.rack + ' · #' + l.caseId + (l.link ? ' (' + (l.link === 'both' ? 'Child + Related' : l.link === 'child' ? 'Child' : 'Related') + ')' : ''); }).join('; '), bug.tags, bug.area, bug.url];
+      D.fmt(bug.created), D.fmt(bug.changed), (c.parent || []).map(fmtL).join('; '), (c.other || []).map(fmtL).join('; '), bug.tags, bug.area, bug.url];
   };
   D.bugExportName = function (ext) { return D.reportPrefix() + '-Bug-List-' + D.reportStamp() + '.' + ext; };
   D.bugFilterLabel = function () {
@@ -2376,14 +2423,14 @@
     D.setStatus('Downloaded Bug List CSV with ' + visible.length + ' Bug(s) (' + D.bugFilterLabel() + ').', 'info');
   };
   D.exportBugExcel = function (visible, all) {
-    var rows = visible.map(function (v) { var r = D.bugExportRow(v.bug, v.links); r[0] = { value: v.bug.id, href: v.bug.url }; r[13] = { value: v.bug.url, href: v.bug.url }; return r; });
+    var rows = visible.map(function (v) { var r = D.bugExportRow(v.bug, v.links); r[0] = { value: v.bug.id, href: v.bug.url }; r[14] = { value: v.bug.url, href: v.bug.url }; return r; });
     function countBy(list, fn, order) { var m = {}; list.forEach(function (b) { var k = fn(b) || 'Not set'; m[k] = (m[k] || 0) + 1; }); return (order ? order(Object.keys(m)) : Object.keys(m).sort()).map(function (k) { return [k, m[k]]; }); }
     var bugs = visible.map(function (v) { return v.bug; }), summary = [
       ['Query', D.queryExtras() && D.queryExtras().bugQuery ? D.queryExtras().bugQuery.name : ''], ['Generated', D.fmt(new Date().toISOString())], ['Filter', D.bugFilterLabel()],
       ['Bugs in export', bugs.length], ['Bugs in query', all.length], ['Open', bugs.filter(D.bugIsOpen).length], ['', '']
     ].concat([['State', 'Count']]).concat(countBy(bugs, function (b) { return b.state; }, D.orderBugStates)).concat([['', ''], ['Severity', 'Count']]).concat(countBy(bugs, function (b) { return b.severity; }));
     var bytes = D.xlsxWorkbook([
-      { name: 'Bugs', headers: D.BUG_EXPORT_HEADERS, rows: rows, widths: [70, 420, 90, 110, 110, 70, 160, 160, 120, 120, 260, 200, 220, 320] },
+      { name: 'Bugs', headers: D.BUG_EXPORT_HEADERS, rows: rows, widths: [70, 420, 90, 110, 110, 70, 160, 160, 120, 120, 220, 300, 200, 220, 320] },
       { name: 'Summary', headers: ['Item', 'Value'], rows: summary, widths: [160, 360] }
     ]);
     D.downloadBlob(bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', D.bugExportName('xlsx'));
@@ -2400,7 +2447,7 @@
         + '<td>' + (b.severity ? '<span class="chip" style="background:' + D.severityColor(b.severity) + '">' + esc(b.severity) + '</span>' : '-') + '</td>'
         + '<td class="n">' + esc(b.priority || '-') + '</td><td>' + esc(b.assignedTo && b.assignedTo !== '-' ? b.assignedTo : 'Unassigned') + '</td><td>' + esc(b.createdBy && b.createdBy !== '-' ? b.createdBy : '-') + '</td>'
         + '<td>' + esc(D.fmt(b.created)) + '</td><td>' + esc(D.fmt(b.changed)) + '</td>'
-        + '<td>' + esc((v.links || []).map(function (l) { return (l.phase === 'Phase 2' ? 'P2 ' : '') + l.rack + ' · #' + l.caseId + (l.link === 'both' ? ' C+R' : l.link === 'child' ? ' C' : ' R'); }).join(', ') || '-') + '</td></tr>';
+        + '<td>' + esc(((v.links && v.links.parent) || []).map(D.caseLinkLabel).join(', ') || 'None') + '</td><td>' + esc(((v.links && v.links.other) || []).map(function (l) { return D.caseLinkLabel(l) + (l.link === 'child' ? ' C' : ' R'); }).join(', ') || '-') + '</td></tr>';
     }).join('');
     var css = '@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:"Segoe UI",Roboto,"Noto Sans TC","Microsoft JhengHei",sans-serif;color:#111827;font-size:10px;margin:0}'
       + 'h1{font-size:18px;margin:0 0 2px}.meta{color:#4b5563;margin-bottom:10px}.cards{display:flex;gap:8px;margin-bottom:10px}.card{flex:1;border:1px solid #d1d5db;border-left:4px solid var(--c);border-radius:6px;padding:6px 10px}.card b{display:block;font-size:18px}.card span{color:#6b7280;font-size:9px;letter-spacing:.05em}'
@@ -2412,7 +2459,7 @@
       + '<div class="meta">Generated ' + esc(D.fmt(new Date().toISOString())) + ' · ' + esc(D.bugFilterLabel()) + ' · ' + bugs.length + ' Bug(s)' + (D.S.bugList && D.S.bugList.loadedAt ? ' · data loaded ' + esc(D.fmt(D.S.bugList.loadedAt)) : '') + '</div>'
       + '<div class="cards">' + [['TOTAL BUGS', bugs.length, '#fb923c'], ['OPEN', open, '#f87171'], ['RESOLVED', resolved, '#fbbf24'], ['CLOSED', closed, '#34d399']].map(function (c) { return '<div class="card" style="--c:' + c[2] + '"><span>' + c[0] + '</span><b>' + c[1] + '</b></div>'; }).join('') + '</div>'
       + '<div class="charts">' + (charts || []).map(function (c) { return '<div class="chart"><h3>' + esc(c.title) + '</h3>' + c.html + '</div>'; }).join('') + '</div>'
-      + '<table><thead><tr><th>ID</th><th>Title</th><th>State</th><th>Severity</th><th>Priority</th><th>Assigned To</th><th>Created By</th><th>Created</th><th>Changed</th><th>Linked Cases</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="10">No Bugs match the filter.</td></tr>') + '</tbody></table>'
+      + '<table><thead><tr><th>ID</th><th>Title</th><th>State</th><th>Severity</th><th>Priority</th><th>Assigned To</th><th>Created By</th><th>Created</th><th>Changed</th><th>Parent Test Case</th><th>Child / Related Test Cases</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="11">No Bugs match the filter.</td></tr>') + '</tbody></table>'
       + '</body></html>';
     var frame = D.el('iframe'); frame.setAttribute('aria-hidden', 'true');
     frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
@@ -2438,11 +2485,12 @@
     if (list.status === 'loading' && !list.items.length) { wrap.appendChild(D.el('div', 'empty', 'Loading Bugs from the query …')); return wrap; }
     if (list.status === 'error') wrap.appendChild(D.el('div', 'empty', 'Bug query failed: ' + list.error));
     if (list.status === 'idle') { wrap.appendChild(D.el('div', 'empty', 'Bugs load after the main query finishes.')); return wrap; }
-    var items = list.items || [], links = D.bugCaseLinks();
-    var open = items.filter(D.bugIsOpen).length, linked = items.filter(function (b) { return (links[String(b.id)] || []).length; }).length;
+    var items = list.items || [], fallbackLinks = D.bugCaseLinks(), caseIndex = D.caseIndexAll(), linkedOf = {};
+    items.forEach(function (b) { linkedOf[b.id] = D.bugLinkedCases(b, fallbackLinks, caseIndex); });
+    var open = items.filter(D.bugIsOpen).length, linked = items.filter(function (b) { return linkedOf[b.id].parent.length; }).length, noParent = items.length - linked;
     var resolved = items.filter(function (b) { return /^resolved$/i.test(b.state); }).length, closed = items.filter(function (b) { return /^(closed|done)$/i.test(b.state); }).length;
     var cards = D.el('div', 'cards');
-    [D.card('TOTAL BUGS', items.length, '#fb923c'), D.card('OPEN', open, '#f87171'), D.card('RESOLVED', resolved, '#fbbf24'), D.card('CLOSED', closed, '#34d399'), D.card('LINKED TO CASES', linked + ' / ' + items.length, '#60a5fa')]
+    [D.card('TOTAL BUGS', items.length, '#fb923c'), D.card('OPEN', open, '#f87171'), D.card('RESOLVED', resolved, '#fbbf24'), D.card('CLOSED', closed, '#34d399'), D.card('WITH PARENT CASE', linked + ' / ' + items.length, '#60a5fa'), D.card('NO PARENT CASE', noParent, noParent ? '#f87171' : '#34d399')]
       .forEach(function (c) { cards.appendChild(c); });
     wrap.appendChild(cards);
     var stateCounts = {}, sevCounts = {};
@@ -2456,7 +2504,7 @@
     var box = D.box('Bugs (' + items.length + ')'), toolbar = D.el('div', 'bug-toolbar');
     var search = D.el('input'); search.type = 'search'; search.placeholder = 'Search ID, title, assignee, creator, tag, Case …'; search.value = D.S.bugFilterText || '';
     var stateSel = D.el('select'), states = D.orderBugStates(Object.keys(stateCounts));
-    [['__all', 'All states'], ['__open', 'Open only']].concat(states.map(function (s) { return [s, s]; })).forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; stateSel.appendChild(opt); });
+    [['__all', 'All states'], ['__open', 'Open only'], ['__noparent', 'No parent Test Case']].concat(states.map(function (s) { return [s, s]; })).forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; stateSel.appendChild(opt); });
     stateSel.value = D.S.bugFilterState || '__all';
     var count = D.el('span', 'small'), visible = [];
     var exportBox = D.el('span', 'bug-export'), csvBtn = D.el('button', null, 'Download CSV'), xlsxBtn = D.el('button', null, 'Download Excel'), pdfBtn = D.el('button', null, 'Download PDF');
@@ -2473,11 +2521,11 @@
     exportBox.appendChild(csvBtn); exportBox.appendChild(xlsxBtn); exportBox.appendChild(pdfBtn);
     toolbar.appendChild(search); toolbar.appendChild(stateSel); toolbar.appendChild(count); toolbar.appendChild(exportBox); box.appendChild(toolbar);
     var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'bug-list-table'), thead = D.el('thead'), hr = D.el('tr');
-    var cols = [['id', 'ID'], ['title', 'Title'], ['state', 'State'], ['severity', 'Severity'], ['priority', 'Priority'], ['assignedTo', 'Assigned To'], ['createdBy', 'Created By'], ['created', 'Created'], ['changed', 'Changed'], ['cases', 'Linked Cases (Rack · Case · Child/Related)']];
+    var cols = [['id', 'ID'], ['title', 'Title'], ['state', 'State'], ['severity', 'Severity'], ['priority', 'Priority'], ['assignedTo', 'Assigned To'], ['createdBy', 'Created By'], ['created', 'Created'], ['changed', 'Changed'], ['parentCase', 'Parent Test Case'], ['otherCases', 'Child / Related Test Cases']];
     var sort = D.S.bugSort || { key: 'id', dir: -1 };
     cols.forEach(function (col) {
       var th = D.el('th', 'sortable', col[1] + (sort.key === col[0] ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''));
-      if (col[0] !== 'cases') th.addEventListener('click', function () { D.S.bugSort = { key: col[0], dir: sort.key === col[0] ? -sort.dir : 1 }; D.renderExtraView(); });
+      if (col[0] !== 'parentCase' && col[0] !== 'otherCases') th.addEventListener('click', function () { D.S.bugSort = { key: col[0], dir: sort.key === col[0] ? -sort.dir : 1 }; D.renderExtraView(); });
       hr.appendChild(th);
     });
     thead.appendChild(hr); table.appendChild(thead);
@@ -2493,9 +2541,10 @@
       tbody.innerHTML = ''; visible = [];
       sorted.forEach(function (bug) {
         if (st === '__open' && !D.bugIsOpen(bug)) return;
-        if (st !== '__all' && st !== '__open' && bug.state !== st) return;
-        var caseLinks = links[String(bug.id)] || [];
-        var hay = [bug.id, bug.title, bug.state, bug.severity, bug.priority, bug.assignedTo, bug.createdBy, bug.tags, bug.area].concat(caseLinks.map(function (l) { return l.caseId + ' ' + l.rack + ' ' + l.title; })).join(' ').toLowerCase();
+        if (st === '__noparent' && linkedOf[bug.id].parent.length) return;
+        if (st !== '__all' && st !== '__open' && st !== '__noparent' && bug.state !== st) return;
+        var caseLinks = linkedOf[bug.id], allCaseLinks = caseLinks.parent.concat(caseLinks.other);
+        var hay = [bug.id, bug.title, bug.state, bug.severity, bug.priority, bug.assignedTo, bug.createdBy, bug.tags, bug.area].concat(allCaseLinks.map(function (l) { return l.caseId + ' ' + l.rack + ' ' + l.title; })).join(' ').toLowerCase();
         if (q && hay.indexOf(q) < 0) return;
         shown++; visible.push({ bug: bug, links: caseLinks });
         var tr = D.el('tr'), idCell = D.el('td', 'num'), a = D.el('a', null, String(bug.id)); a.href = bug.url; a.target = '_blank'; a.rel = 'noopener'; idCell.appendChild(a); tr.appendChild(idCell);
@@ -2505,12 +2554,18 @@
         tr.appendChild(D.el('td', 'num', bug.priority || '-')); tr.appendChild(D.el('td', null, bug.assignedTo && bug.assignedTo !== '-' ? bug.assignedTo : 'Unassigned'));
         tr.appendChild(D.el('td', null, bug.createdBy && bug.createdBy !== '-' ? bug.createdBy : '-'));
         tr.appendChild(D.el('td', null, D.fmt(bug.created))); tr.appendChild(D.el('td', null, D.fmt(bug.changed)));
+        function caseChip(l, tag) {
+          var w = D.el('span', 'bug-case-link'), ca = D.el('a', null, D.caseLinkLabel(l)); ca.href = D.wiUrl(l.caseId); ca.target = '_blank'; ca.rel = 'noopener';
+          ca.title = (l.phase || 'Not in this Query') + ' · ' + (l.title || ''); w.appendChild(ca); if (tag) w.appendChild(D.el('span', 'itb-kind fb-' + tag, tag === 'child' ? 'C' : 'R')); return w;
+        }
+        var parentCell = D.el('td', 'bug-cases');
+        if (!caseLinks.parent.length) { parentCell.appendChild(D.el('span', 'bug-noparent', 'No parent Case')); parentCell.title = caseLinks.parentOther.length ? 'Parent is ' + caseLinks.parentOther.map(function (x) { return x.type + ' #' + x.id; }).join(', ') + ', not a Test Case' : 'This Bug has no Parent Test Case link'; }
+        caseLinks.parent.forEach(function (l) { parentCell.appendChild(caseChip(l)); });
+        if (caseLinks.parent.length > 1) parentCell.appendChild(D.el('span', 'small', ' (' + caseLinks.parent.length + ' parents)'));
+        tr.appendChild(parentCell);
         var linkCell = D.el('td', 'bug-cases');
-        if (!caseLinks.length) linkCell.textContent = '-';
-        caseLinks.forEach(function (l) {
-          var wrapL = D.el('span', 'bug-case-link'), ca = D.el('a', null, (l.phase === 'Phase 2' ? 'P2 · ' : '') + l.rack + ' · #' + l.caseId); ca.href = D.wiUrl(l.caseId); ca.target = '_blank'; ca.rel = 'noopener'; ca.title = l.phase + ' · ' + (l.title || '');
-          wrapL.appendChild(ca); wrapL.appendChild(D.el('span', 'itb-kind fb-' + l.link, l.link === 'both' ? 'C+R' : l.link === 'child' ? 'C' : 'R')); linkCell.appendChild(wrapL);
-        });
+        if (!caseLinks.other.length) linkCell.textContent = '-';
+        caseLinks.other.forEach(function (l) { linkCell.appendChild(caseChip(l, l.link === 'child' ? 'child' : 'related')); });
         tr.appendChild(linkCell); tbody.appendChild(tr);
       });
       if (!shown) { var er = D.el('tr'), ec = D.el('td', 'empty', 'No Bugs match the filter.'); ec.colSpan = cols.length; er.appendChild(ec); tbody.appendChild(er); }
@@ -2586,7 +2641,7 @@
   D.CSS += "\n.phase-tab[data-view='bugs']{--phase-accent:#fb923c}.phase-tab[data-view='portal']{--phase-accent:#34d399}.phase-tab.extra-tab{flex:0 1 220px}.phase-tab.portal-sep{margin-left:auto}@media(max-width:620px){.phase-tab.portal-sep{margin-left:0}}"
     + "\n.extra-view{padding:16px 20px 28px;min-width:0}.extra-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px}.extra-head h2{margin:0;font-size:20px;color:#e2e8f0}.extra-head a{color:#93c5fd}.extra-head button{margin-left:auto}"
     + "\n.bug-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}.bug-toolbar input{flex:1 1 280px;min-width:200px;padding:7px 10px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.bug-toolbar select{min-width:160px}"
-    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1320px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{white-space:nowrap}.bug-case-link{display:inline-flex;align-items:center;gap:2px;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
+    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1500px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{white-space:nowrap}.bug-noparent{display:inline-block;padding:0 7px;border-radius:999px;border:1px dashed #f87171;color:#f87171;font-size:10.5px;font-weight:700;cursor:help}.bug-case-link{display:inline-flex;align-items:center;gap:2px;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
     + "\n.portal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.portal-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:#111d33;border:1px solid #253858;border-left:4px solid #34d399}.portal-card.unset{border-left-color:#fbbf24}"
     + "\n.portal-title{font-size:15px;font-weight:700;color:#e2e8f0}.portal-host{font-size:12px;color:#93c5fd;word-break:break-all}.portal-card.unset .portal-host{color:#fbbf24}.portal-actions{display:flex;gap:8px;margin-top:6px;align-items:center}.portal-actions button{width:auto}"
     + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";
