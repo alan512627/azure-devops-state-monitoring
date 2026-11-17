@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.16.2，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.16.5，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1470,3 +1470,6 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - Overview「Bugs found in this test」的缺漏格同樣改為紅底＋滑鼠提示（不再顯示文字標籤）；Overview 兩個 Bug 區塊保留。`D.inTestReport` rows 新增 `key`。新增 `tests/bug-link-check.test.cjs`。
 - （v1.16.1）修正 Bug List 的 `Linked Cases` 欄全部變成 `-`：原本 `D.bugCaseLinks` 只用通過 Child ↔ Parent ↔ History 三重驗證的 Child link（`bugInventory`），驗證未通過或仍在背景執行時整欄為空，且從不包含 Related link。改為列出兩個 Phase 中所有掛此 Bug 的 Case：任何 Child link（`childBugsRaw` ∪ `bugs`）與 Related link，每筆標示 C／R／C+R，Phase 2 加 `P2` 前綴；`LINKED TO CASES` 卡、搜尋、CSV／Excel／PDF 匯出同步採用。mock 重現：History 不回傳新增紀錄時，main 版每列皆為 `-`，修正後顯示 Rack · Case 與 link 類型。
 - （v1.16.2）Bug List 改依 **Bug 本身的 link** 顯示 Case：`D.loadBugList` 另以 `$expand: relations` 讀取每條 Bug 的 relations，`Hierarchy-Reverse`（Parent）→ `Parent Test Case` 欄；`Hierarchy-Forward`（Child）與 `Related` → `Child / Related Test Cases` 欄（標 C／R）。只顯示 Test Case：目標在 Dashboard Query 內直接判定，其餘以基本欄位（WorkItemType、Title、TeamProject）查詢。團隊規則為每條 Bug 至少一條 Parent Test Case，沒有時標紅 `No parent Case`（Parent 若是其他類型會在 tooltip 說明），並新增 `WITH PARENT CASE`／`NO PARENT CASE` 卡與 `No parent Test Case` 篩選；CSV／Excel／PDF 匯出改為兩欄。Bug relations 讀取失敗時退回 Case 端的 link（`D.bugCaseLinks`）。新增 `D.caseIndexAll`、`D.bugLinkedCases`、`D.caseLinkLabel`。
+- （v1.16.3）Bug Links 規則調整：common Bug 沒掛在 Rack 1、且 Rack 1 該測項為 Failed 時，視為與 Rack 1 不同的問題（Rack 1 掛的是其他 Bug），此 Bug 在每個有掛它的 Rack 都應為 Child（`entry.perRackChild`），不再列入 Needs review；移除 Needs review 卡片、篩選與清單。
+- （v1.16.4）再修正 Bug Links 規則：common Bug 沒掛在 Rack 1 時，不論 Rack 1 結果，一律由有此 Bug 的最小號 Rack 掛 Child、其他 Rack 為 Related（取代 v1.16.3 的「每個 Rack 都 Child」）。Rack-only Bug 仍為該 Rack 的 Child。
+- （v1.16.5）Bug Links 改為**以測項為單位**判斷：`D.bugLinkCheck` 從 `report.rows` 建立 Bug × 測項的 entry（`e.key`、`e.title`），`expectedOf` 的 key 改為 `bugId|rowKey|rackIndex`。同一 Bug 在不同測項各自判斷 common（同測項 2+ Rack：Rack 1 或最小號 Rack 為 Child，其他 Related）或 rack-only（該 Rack Child）。Bug 清單新增 Test item 欄；移除 Needs review 殘留的 CSS。

@@ -14,21 +14,24 @@ const bug = id => ({ id, title: 'Bug ' + id, created: '2026-10-20T00:00:00Z' });
 const tc = (r, item, outcome, child = [], related = []) => ({ id: r * 100 + item, type: 'Test Case', title: 'Item ' + item, latestTestPoint: { outcome }, childBugsRaw: child.map(bug), bugs: [], relatedBugs: related.map(bug) });
 // item0: common bug 1 — R1 Child, R2 Related, R3 Child (wrong)
 // item1: R1 Passed; common bug 2 — R2 Child, R3 Related (OK); R4 Failed without bug
-// item2: R1 Failed with rack-only bug 9; common bug 3 on R3 (Related) + R4 (Child) -> review
+// item2: R1 Failed with rack-only bug 9; bug 3 on R3 (Related) + R4 (Child), not on R1 -> Child on R3 (lowest), Related on R4: both wrong
 // item3: rack-only bug 4 only Related on R2 -> issue
+// bug 5: Child on item0 R2 and item3 R5 -> two separate rack-only entries, both OK (judged per test item)
 const plan = [
-  [['Failed', [1]], ['Failed', [], [1]], ['Failed', [1]], ['Passed'], ['Blocked']],
+  [['Failed', [1]], ['Failed', [5], [1]], ['Failed', [1]], ['Passed'], ['Blocked']],
   [['Passed'], ['Failed', [2]], ['Failed', [], [2]], ['Failed'], ['Unspecified']],
   [['Failed', [9]], ['Unspecified'], ['Failed', [], [3]], ['Failed', [3]], ['Passed']],
-  [['Unspecified'], ['Failed', [], [4]], ['Unspecified'], ['Unspecified'], ['Unspecified']]
+  [['Unspecified'], ['Failed', [], [4]], ['Unspecified'], ['Unspecified'], ['Failed', [5]]]
 ];
 const racks = [0, 1, 2, 3, 4].map(r => ({ type: 'Feature', label: 'Rack ' + (r + 1), children: plan.map((item, i) => tc(r + 1, i, ...item[r])) }));
 const chk = D.bugLinkCheck(racks), byId = id => chk.common.concat(chk.single).find(x => x.e.bug.id === id);
 assert.deepStrictEqual([byId(1).status, byId(1).problems], ['issue', ['R3 is Child — should be Related']]);
 assert.deepStrictEqual([byId(2).status, byId(2).anchor], ['ok', 1], 'R1 Passed -> Child on lowest Rack with the Bug');
-assert.strictEqual(byId(3).status, 'review', 'R1 Failed but common Bug not on R1 -> manual review');
+assert.deepStrictEqual([byId(3).status, byId(3).anchor, byId(3).problems], ['issue', 2, ['No Child on R3', 'R4 is Child — should be Related']], 'Not on R1 (R1 Failed) -> Child on lowest Rack');
 assert.deepStrictEqual([byId(4).status, byId(4).problems], ['issue', ['Only Related on R2 — should be Child']]);
 assert.deepStrictEqual([byId(9).status, chk.missing, chk.perRack[3].missing], ['ok', 1, 1]);
-assert.deepStrictEqual([chk.common.length, chk.single.length, chk.issues.length, chk.review.length, chk.commonOk], [3, 2, 2, 1, 1]);
-assert.deepStrictEqual(chk.report.notInList.map(x => x.bug.id).sort(), [4, 9]);
-console.log('PASS: bug link check applies the Child-on-Rack-1 / Related-elsewhere rule, Passed-R1 fallback, review and missing cases');
+assert.deepStrictEqual([chk.common.length, chk.single.length, chk.issues.length, chk.commonOk], [3, 4, 3, 1]);
+const five = chk.single.filter(x => x.e.bug.id === 5);
+assert.deepStrictEqual(five.map(x => [x.anchor, x.status]), [[1, 'ok'], [4, 'ok']], 'Same Bug on different test items is judged separately');
+assert.deepStrictEqual(chk.report.notInList.map(x => x.bug.id).sort(), [4, 5, 9]);
+console.log('PASS: bug link check applies the Child-on-Rack-1 / Related-elsewhere rule, Passed-R1 fallback, not-on-R1 lowest-Rack Child, per-test-item judgement and missing cases');
