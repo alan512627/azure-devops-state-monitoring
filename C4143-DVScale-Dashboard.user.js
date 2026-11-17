@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.14.1
+// @version      1.14.2
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -383,7 +383,7 @@
     }
     var byId = {};
     items.forEach(function (it) { byId[it.id] = it.fields; });
-    var relatedIdsOf = {}, linkedIdsOf = {}, linkedMetaOf = {}, linkedRelationsById = {}, linkedFetchIds = [], linkedSeen = {}, deferredBugContext = null;
+    var relatedIdsOf = {}, relatedFetchIds = [], relatedSeen = {}, linkedIdsOf = {}, linkedMetaOf = {}, linkedRelationsById = {}, linkedFetchIds = [], linkedSeen = {}, deferredBugContext = null;
     try {
       var testCaseIds = items.filter(function (it) {
         return it.fields && it.fields['System.WorkItemType'] === 'Test Case' && !D.excludedCaseReason({ title: it.fields['System.Title'] });
@@ -400,7 +400,7 @@
               var relatedId = D.relationWorkItemId(rel);
               if (relatedId && relatedId !== it.id) {
                 (relatedIdsOf[it.id] = relatedIdsOf[it.id] || {})[relatedId] = 1;
-                if (!linkedSeen[relatedId]) { linkedSeen[relatedId] = 1; linkedFetchIds.push(relatedId); }
+                if (!relatedSeen[relatedId]) { relatedSeen[relatedId] = 1; relatedFetchIds.push(relatedId); }
               }
               return;
             }
@@ -463,9 +463,41 @@
         D.S.bugLinkWarning = warningParts.join('; ');
       }
     } catch (bugLinkError) {
-      linkedIdsOf = {}; relatedIdsOf = {};
+      linkedIdsOf = {};
       linkedMetaOf = {};
       D.S.bugLinkWarning = String((bugLinkError && bugLinkError.message) || bugLinkError);
+    }
+    // Related links are read separately from the Child pipeline: their targets include Test Cases in other
+    // projects / process templates, where the custom metric fields do not exist, which used to fail the whole
+    // batch and wipe the Child links too. Use base fields only, then add Severity/Priority for Bugs if available.
+    D.S.relatedLinkWarning = '';
+    try {
+      var relatedTargets = relatedFetchIds.filter(function (rid) { return !byId[rid]; }), relatedChunks = [];
+      for (var rc = 0; rc < relatedTargets.length; rc += 200) relatedChunks.push(relatedTargets.slice(rc, rc + 200));
+      var relatedBase = ['System.Id', 'System.WorkItemType', 'System.Title', 'System.State', 'System.AssignedTo', 'System.CreatedBy', 'System.TeamProject'];
+      var relatedBatches = await D.mapLimit(relatedChunks, 3, function (chunk) {
+        return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: relatedBase, errorPolicy: 'omit' }) });
+      });
+      var relatedBugIds = [];
+      relatedBatches.forEach(function (batch) { (batch.value || []).forEach(function (it) {
+        if (!it || !it.fields || byId[it.id]) return;
+        if (it.fields['System.WorkItemType'] === 'Bug') { byId[it.id] = it.fields; relatedBugIds.push(it.id); }
+      }); });
+      var extraFields = [D.S.metricFields && D.S.metricFields.severity, D.S.metricFields && D.S.metricFields.priority].filter(Boolean);
+      if (extraFields.length && relatedBugIds.length) {
+        try {
+          var extraChunks = [];
+          for (var ec = 0; ec < relatedBugIds.length; ec += 200) extraChunks.push(relatedBugIds.slice(ec, ec + 200));
+          var extraBatches = await D.mapLimit(extraChunks, 3, function (chunk) {
+            return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
+              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: extraFields, errorPolicy: 'omit' }) });
+          });
+          extraBatches.forEach(function (batch) { (batch.value || []).forEach(function (it) { if (it && it.fields && byId[it.id]) Object.assign(byId[it.id], it.fields); }); });
+        } catch (extraError) { D.S.relatedLinkWarning = 'Severity / Priority of Related Bugs could not be read'; }
+      }
+    } catch (relatedError) {
+      D.S.relatedLinkWarning = 'Related links could not be read: ' + String((relatedError && relatedError.message) || relatedError);
     }
     var childrenOf = {}, parentOf = {};
     rels.forEach(function (r) {
@@ -2932,8 +2964,8 @@
     return wrap;
   };
   D.failBugNote = function () {
-    var validating = /validating in the background/i.test(D.S.bugLinkWarning || '');
-    return D.el('div', 'small fb-note', 'Failed and Blocked are counted separately (Execute Test Point outcome). Child = verified Test Case Child link (Child ↔ Parent ↔ History); Related = Related link from the Case to a Bug; Child + Related = the same Bug is linked both ways on that Case. Bug counts are unique within each Rack and across all Racks. Uses every Case in the phase (time range not applied).' + (validating ? ' Child links are still validating — Child counts will update when it finishes.' : ''));
+    var validating = /validating in the background/i.test(D.S.bugLinkWarning || ''), childProblem = !validating && D.S.bugLinkWarning ? ' Child link warning: ' + D.S.bugLinkWarning + '.' : '', relatedProblem = D.S.relatedLinkWarning ? ' ' + D.S.relatedLinkWarning + '.' : '';
+    return D.el('div', 'small fb-note', 'Failed and Blocked are counted separately (Execute Test Point outcome). Child = verified Test Case Child link (Child ↔ Parent ↔ History); Related = Related link from the Case to a Bug; Child + Related = the same Bug is linked both ways on that Case. Bug counts are unique within each Rack and across all Racks. Uses every Case in the phase (time range not applied).' + (validating ? ' Child links are still validating — Child counts will update when it finishes.' : '') + childProblem + relatedProblem);
   };
   D.failBugOverview = function (racks) {
     var wrap = D.el('div'), report = D.failBugReport(racks), t = report.total;
@@ -3250,7 +3282,7 @@
     var consistency = D.rackConsistency();
     var scopeNote = ' Case scope: ' + allCases.length + ' Case(s) included; ' + activeScope.phaseTagErrors.length + ' Case(s) excluded for missing or conflicted Phase tags and ' + activeScope.configuredExclusions.length + ' configured FPGA teardown Case(s) excluded. Rack comes from the enclosing Rack Feature title.';
     var consistencyNote = consistency.allEqual ? ' Phase/Rack counts are consistent at ' + consistency.baseline + ' per Rack.' : ' Phase/Rack count mismatch detected; dashboard retains the actual hierarchy data.';
-    var bugNote = D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '';
+    var bugNote = (D.S.bugLinkWarning ? ' Bug link validation: ' + D.S.bugLinkWarning + '. The core dashboard data is still current.' : '') + (D.S.relatedLinkWarning ? ' ' + D.S.relatedLinkWarning + '.' : '');
     var metricNote = D.S.metricFieldWarning ? ' Some custom Test Case metric fields were unavailable; the rest of the dashboard is current.' : '';
     var testNote = D.S.testResults && D.S.testResults.status === 'error' ? ' Test Point outcomes are unavailable: ' + D.S.testResults.error + '.' : '';
     if (D.S.testResults && D.S.testResults.status === 'ok') testNote += ' Test Point matches: ' + (D.S.testResults.pointMatches || 0) + '/' + allCases.length + ' via ' + (D.S.testResults.pointSource || 'plan scan') + (D.S.testResults.pointErrors && D.S.testResults.pointErrors.length ? ' (' + D.S.testResults.pointErrors.length + ' plan errors)' : '') + '.';
