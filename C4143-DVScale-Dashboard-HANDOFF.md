@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.14.2，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.15.0，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1444,3 +1444,15 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - 根因：v1.14.0 把 Related 目標併入 Child 的 `linkedFetchIds`，以完整欄位清單（含自訂 metric 欄位、`System.Tags` 等）呼叫 `workitemsbatch`。Related 目標包含其他 Project／Process 的 Test Case，該處沒有這些欄位，整批請求失敗 → 進入 `catch (bugLinkError)`，同時清空 `linkedIdsOf` 與 `relatedIdsOf`，Child 與 Related 一起歸零。mock 重現：給 Related 加上「以完整欄位讀取會 400」的外部 Test Case，v1.14.0 得到 0／0，與使用者畫面一致。
 - 修正：Related 目標改放獨立的 `relatedFetchIds`，在 Child 流程結束後另外讀取，只用基本欄位（Id、WorkItemType、Title、State、AssignedTo、CreatedBy、TeamProject，`errorPolicy: omit`），只保留 Work Item Type = Bug；Bug 的 Severity／Priority 再以第二次請求補上，失敗不影響其他資料。Child 流程失敗時不再清除 Related；Related 讀取失敗時以 `D.S.relatedLinkWarning` 顯示在狀態列與報表說明，Child 不受影響。報表說明也會顯示 Child link 驗證錯誤。
 - 新增 `tests/related-link-isolation.test.cjs`。
+
+## 81. 2026-11-17 本次測試發現的 Bug（依測項 × Rack，與 Bug List 比對）（v1.15.0）
+
+- 使用者目標：Rack 1–5 都是同一組測項；Failed 的 Case 必定掛 Bug（Child 或 Related 都可能）；要逐測項列出**本次測試（10/08～11/13）才發現**的 Bug，並可與 Bug List 比對。規則由實作訂定如下：
+  1. **測試期間**：`D.TEST_WINDOW = { from: '2026-10-08', to: '2026-11-13', tz: '+08:00' }`，含首尾兩天全天（台北時間），依 Bug 的 `System.CreatedDate` 判斷；可由 `D.QUERY_EXTRAS[queryId].testWindow` 覆寫。
+  2. **掛載方式**：Case → Bug 的 Child（`Hierarchy-Forward`，**任何** Child link，不需 History 驗證；新增 `childBugsRaw`）或 Related（`System.LinkTypes.Related`）皆計入；同一 Bug 兩種都有標 `C+R`。
+  3. **測項**：依標題跨 Rack 對應（同 outcome matrix），每列一個測項、R1–R5 每格一個 Case；依分類分段並顯示 Log reviewer。
+  4. **缺漏**：該 Rack outcome = Failed 但沒有任何期間內 Bug → `missing bug`（期間外的 Bug 只顯示 `+n older`，不算數）。Blocked 不要求必須有 Bug，但有掛的仍列出。
+  5. **比對 Bug List**：以 Bug ID 比對 Bug List query 結果；不在 Bug List 的 Bug ID 以黃色顯示；下方兩欄列出「已掛 Case 但不在 Bug List」與「Bug List 中於期間內建立但未掛任何 Case」。
+  6. **去重**：同一 Bug 掛多個 Rack／Case 只算一個（測項層級與總數皆是）。範圍為該 Phase 全部 Case（不套用 Time range）。
+- 卡片：Test items、Failed（測項 × Rack 格數）、Failed without in-test bug、In-test bugs linked、Also in Bug List、Linked not in Bug List、Bug List only。篩選：All／Failed without in-test bug／Has in-test bugs／No in-test bugs；CSV 匯出每測項各 Rack 的 outcome 與期間內 Bug。
+- 資料：核心欄位加入 `System.CreatedBy`；Related 讀取加入 `System.CreatedDate`；Bug 物件新增 `created`、`createdBy`。Bug List 載入完成後會觸發 Dashboard 重新整理，讓比對欄位更新。新增 `tests/in-test-bugs.test.cjs`。

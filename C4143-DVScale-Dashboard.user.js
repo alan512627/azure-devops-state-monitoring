@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.14.2
+// @version      1.15.0
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -359,7 +359,7 @@
     var ids = [], seen = {};
     rels.forEach(function (r) { [r.source, r.target].forEach(function (x) { if (x && !seen[x.id]) { seen[x.id] = 1; ids.push(x.id); } }); });
     (wiql.workItems || []).forEach(function (w) { if (!seen[w.id]) { seen[w.id] = 1; ids.push(w.id); } });
-    var baseFields = ['System.Id', 'System.WorkItemType', 'System.Title', 'System.State', 'System.Tags', 'System.ChangedDate', 'System.CreatedDate', 'System.AssignedTo'];
+    var baseFields = ['System.Id', 'System.WorkItemType', 'System.Title', 'System.State', 'System.Tags', 'System.ChangedDate', 'System.CreatedDate', 'System.AssignedTo', 'System.CreatedBy'];
     D.S.metricFields = await D.discoverMetricFields(base);
     var extraFields = Object.keys(D.S.metricFields).map(function (key) { return D.S.metricFields[key]; }).filter(Boolean);
     var fields = baseFields.concat(extraFields.filter(function (field, index, list) { return baseFields.indexOf(field) < 0 && list.indexOf(field) === index; }));
@@ -474,7 +474,7 @@
     try {
       var relatedTargets = relatedFetchIds.filter(function (rid) { return !byId[rid]; }), relatedChunks = [];
       for (var rc = 0; rc < relatedTargets.length; rc += 200) relatedChunks.push(relatedTargets.slice(rc, rc + 200));
-      var relatedBase = ['System.Id', 'System.WorkItemType', 'System.Title', 'System.State', 'System.AssignedTo', 'System.CreatedBy', 'System.TeamProject'];
+      var relatedBase = ['System.Id', 'System.WorkItemType', 'System.Title', 'System.State', 'System.AssignedTo', 'System.CreatedBy', 'System.CreatedDate', 'System.TeamProject'];
       var relatedBatches = await D.mapLimit(relatedChunks, 3, function (chunk) {
         return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: relatedBase, errorPolicy: 'omit' }) });
@@ -536,6 +536,9 @@
           var bug = byId[linkedId] || {}, linkMeta = linkedMetaOf[id][linkedId] || {};
           return Object.assign(D.bugFromFields(linkedId, bug), { linkAddedAt: linkMeta.addedAt || null, linkAddedBy: linkMeta.addedBy || '', linkAddedRevision: linkMeta.revision || null });
         }),
+        childBugsRaw: Object.keys(linkedIdsOf[id] || {}).map(function (linkedId) { return +linkedId; }).filter(function (linkedId) {
+          return byId[linkedId] && byId[linkedId]['System.WorkItemType'] === 'Bug';
+        }).map(function (linkedId) { return D.bugFromFields(linkedId, byId[linkedId]); }),
         relatedBugs: Object.keys(relatedIdsOf[id] || {}).map(function (linkedId) { return +linkedId; }).filter(function (linkedId) {
           return byId[linkedId] && byId[linkedId]['System.WorkItemType'] === 'Bug';
         }).map(function (linkedId) { return D.bugFromFields(linkedId, byId[linkedId]); }),
@@ -560,7 +563,9 @@
     bug = bug || {};
     return { id: linkedId, title: bug['System.Title'] || ('Bug #' + linkedId), state: bug['System.State'] || '?',
       severity: D.fieldValue(bug, D.S.metricFields && D.S.metricFields.severity), priority: D.fieldValue(bug, D.S.metricFields && D.S.metricFields.priority),
-      assignedTo: bug['System.AssignedTo'] ? (bug['System.AssignedTo'].displayName || bug['System.AssignedTo'].uniqueName || String(bug['System.AssignedTo'])) : '' };
+      assignedTo: bug['System.AssignedTo'] ? (bug['System.AssignedTo'].displayName || bug['System.AssignedTo'].uniqueName || String(bug['System.AssignedTo'])) : '',
+      createdBy: bug['System.CreatedBy'] ? (bug['System.CreatedBy'].displayName || bug['System.CreatedBy'].uniqueName || String(bug['System.CreatedBy'])) : '',
+      created: bug['System.CreatedDate'] || null };
   };
   D.applyBugLinks = function (racks, linkedMetaOf, byId) {
     function visit(node) {
@@ -3035,6 +3040,132 @@
   D.CSS += "\n.fb-tag{display:inline-block;border-radius:999px;padding:1px 8px;font-size:10.5px;font-weight:700;color:#0b1220;white-space:nowrap}.fb-child{background:#f59e0b}.fb-related{background:#38bdf8}.fb-both{background:#a78bfa}.fb-none{background:transparent;border:1px dashed #475569;color:#94a3b8}"
     + "\n.fb-sum{min-width:900px}.fb-sum tfoot td{font-weight:700;border-top:2px solid #253858}.fb-bar{display:flex;width:180px;height:10px;border-radius:4px;overflow:hidden;background:#16243d}.fb-bar i{display:block;height:100%}"
     + "\n.fb-table{min-width:1100px;font-size:12.5px}.fb-table td{vertical-align:top}.fb-table tr.fb-cont td{border-top:0}.fb-case{max-width:420px}.fb-bug{max-width:420px}.fb-note{margin:8px 0 10px}.fb-racks{margin-top:6px}.fb-cards{margin-bottom:12px}";
+  // "Bugs found in this test": per test item (same title on Rack 1–5), the Bugs linked to each Rack's Case either as
+  // Child (any Child link, not only History-verified) or as Related, created inside the test window, compared with the Bug List query.
+  D.TEST_WINDOW = { from: '2026-10-08', to: '2026-11-13', tz: '+08:00' };
+  D.testWindowRange = function () {
+    var w = (D.queryExtras() && D.queryExtras().testWindow) || D.TEST_WINDOW;
+    return { from: Date.parse(w.from + 'T00:00:00' + w.tz), to: Date.parse(w.to + 'T23:59:59.999' + w.tz), label: w.from + ' – ' + w.to };
+  };
+  D.inTestWindow = function (iso, range) { var t = Date.parse(iso || ''); return !isNaN(t) && t >= range.from && t <= range.to; };
+  D.caseAllBugLinks = function (testCase) {
+    var map = {};
+    function add(bug, kind) { if (!bug) return; var e = map[bug.id] = map[bug.id] || { bug: bug, child: false, related: false }; e[kind] = true; if (!e.bug.created && bug.created) e.bug = bug; }
+    (testCase.childBugsRaw || testCase.bugs || []).forEach(function (b) { add(b, 'child'); });
+    (testCase.bugs || []).forEach(function (b) { add(b, 'child'); });
+    (testCase.relatedBugs || []).forEach(function (b) { add(b, 'related'); });
+    return Object.keys(map).map(function (id) { var e = map[id]; e.link = e.child && e.related ? 'both' : e.child ? 'child' : 'related'; return e; })
+      .sort(function (a, b) { return String(a.bug.created || '').localeCompare(String(b.bug.created || '')) || (+a.bug.id - +b.bug.id); });
+  };
+  D.inTestReport = function (racks) {
+    var range = D.testWindowRange(), index = D.crossRackIndex(racks), bugList = D.S.bugList && D.S.bugList.status === 'ok' ? D.S.bugList.items : null;
+    var listIds = {}; (bugList || []).forEach(function (b) { listIds[b.id] = b; });
+    var allLinked = {}, rows = Object.keys(index).map(function (key) {
+      var itemBugs = {}, cells = index[key].map(function (testCase) {
+        if (!testCase) return null;
+        var o = D.caseOutcome(testCase), outcome = D.resultOutcomeKey(o && o.outcome), links = D.caseAllBugLinks(testCase);
+        var inTest = links.filter(function (l) { return D.inTestWindow(l.bug.created, range); }), older = links.length - inTest.length;
+        inTest.forEach(function (l) { itemBugs[l.bug.id] = l.bug; allLinked[l.bug.id] = allLinked[l.bug.id] || { bug: l.bug, where: [] }; allLinked[l.bug.id].where.push({ testCase: testCase }); });
+        return { testCase: testCase, outcome: outcome, inTest: inTest, older: older, gap: outcome === 'Failed' && !inTest.length };
+      });
+      var first = cells.filter(Boolean)[0];
+      return { title: first ? first.testCase.title : key, category: D.caseCategory ? D.caseCategory(first ? first.testCase.title : key) : '', cells: cells,
+        bugs: Object.keys(itemBugs).map(function (id) { return itemBugs[id]; }),
+        failed: cells.filter(function (c) { return c && c.outcome === 'Failed'; }).length, gaps: cells.filter(function (c) { return c && c.gap; }).length };
+    });
+    var linkedIds = Object.keys(allLinked);
+    var notInList = bugList ? linkedIds.filter(function (id) { return !listIds[id]; }).map(function (id) { return allLinked[id]; }) : [];
+    var listOnly = bugList ? bugList.filter(function (b) { return D.inTestWindow(b.created, range) && !allLinked[b.id]; }) : [];
+    return { range: range, rows: rows, linked: linkedIds.length, bugListReady: !!bugList, inList: bugList ? linkedIds.length - notInList.length : 0, notInList: notInList, listOnly: listOnly,
+      failedCells: rows.reduce(function (n, r) { return n + r.failed; }, 0), gapCells: rows.reduce(function (n, r) { return n + r.gaps; }, 0) };
+  };
+  D.exportInTestCsv = function (report, racks) {
+    var header = ['Category', 'Test item'].concat(racks.map(function (r) { return 'R' + (D.rackNumber(r) || '?') + ' outcome'; })).concat(racks.map(function (r) { return 'R' + (D.rackNumber(r) || '?') + ' in-test bugs'; })).concat(['Unique in-test bugs', 'Failed Racks without in-test bug']);
+    var lines = [header.map(D.csvValue).join(',')];
+    report.rows.forEach(function (row) {
+      lines.push([row.category, row.title].concat(row.cells.map(function (c) { return c ? c.outcome : 'No Case'; }))
+        .concat(row.cells.map(function (c) { return c ? c.inTest.map(function (l) { return '#' + l.bug.id + ' (' + D.FAILBUG_LINK[l.link] + ', ' + String(l.bug.created || '').slice(0, 10) + ')'; }).join('; ') : ''; }))
+        .concat([row.bugs.map(function (b) { return '#' + b.id; }).join('; '), row.cells.map(function (c, i) { return c && c.gap ? 'R' + (D.rackNumber(racks[i]) || i + 1) : ''; }).filter(Boolean).join(' ')]).map(D.csvValue).join(','));
+    });
+    D.downloadBlob('﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8', D.reportPrefix() + '-' + D.phaseFileLabel() + '-In-Test-Bugs-' + D.reportStamp() + '.csv');
+  };
+  D.inTestBugView = function (racks) {
+    var wrap = D.el('div'), report = D.inTestReport(racks), filter = D.S.inTestFilter || 'all';
+    wrap.appendChild(D.el('div', 'small fb-note', 'Rules · Test window ' + report.range.label + ' (Taipei time), by Bug Created Date · A Bug counts when it is linked to the Case as Child or Related (any Child link, verified or not) · Rows are test items matched by title across Racks · "Missing bug" = the Rack\'s outcome is Failed but no Bug in the window is linked · Compared with the Bug List query by Bug ID; a yellow Bug ID is not in the Bug List · Tags: C = Child, R = Related, C+R = both · "+n older" = linked Bugs created outside the window (not listed) · Every Case in the phase (time range not applied).'));
+    var cards = D.el('div', 'cards fb-cards');
+    [['TEST ITEMS', report.rows.length, '#60a5fa'], ['FAILED (ITEM × RACK)', report.failedCells, '#f87171'], ['FAILED WITHOUT IN-TEST BUG', report.gapCells, '#fb923c'],
+      ['IN-TEST BUGS LINKED', report.linked, '#a78bfa'], ['ALSO IN BUG LIST', report.bugListReady ? report.inList : '…', '#34d399'],
+      ['LINKED, NOT IN BUG LIST', report.bugListReady ? report.notInList.length : '…', '#fbbf24'], ['BUG LIST ONLY (NOT LINKED)', report.bugListReady ? report.listOnly.length : '…', '#94a3b8']]
+      .forEach(function (c) { cards.appendChild(D.card(c[0], c[1], c[2])); });
+    wrap.appendChild(cards);
+    var bar = D.el('div', 'bug-toolbar'), sel = D.el('select'), csv = D.el('button', null, 'Download CSV');
+    [['all', 'All test items'], ['gap', 'Failed without in-test bug'], ['bugs', 'Has in-test bugs'], ['none', 'No in-test bugs']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; sel.appendChild(opt); });
+    sel.value = filter; bar.appendChild(sel); bar.appendChild(csv); wrap.appendChild(bar);
+    csv.addEventListener('click', function () { D.exportInTestCsv(report, racks); });
+    var listIds = {}; ((D.S.bugList && D.S.bugList.items) || []).forEach(function (b) { listIds[b.id] = 1; });
+    var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'itb-table'), hr = D.el('tr'), thead = D.el('thead');
+    hr.appendChild(D.el('th', null, 'Test item'));
+    racks.forEach(function (r) { hr.appendChild(D.el('th', null, 'R' + (D.rackNumber(r) || '?'))); });
+    hr.appendChild(D.el('th', null, 'Unique in-test bugs'));
+    thead.appendChild(hr); table.appendChild(thead); var tbody = D.el('tbody'); table.appendChild(tbody); scroll.appendChild(table); wrap.appendChild(scroll);
+    function bugChip(l) {
+      var span = D.el('span', 'itb-bug' + (report.bugListReady && !listIds[l.bug.id] ? ' not-in-list' : '')), a = D.bugAnchor(l.bug);
+      span.appendChild(a); span.appendChild(D.el('span', 'itb-kind fb-' + l.link, l.link === 'both' ? 'C+R' : l.link === 'child' ? 'C' : 'R'));
+      span.title = '#' + l.bug.id + ' ' + (l.bug.title || '') + ' · ' + D.FAILBUG_LINK[l.link] + ' · created ' + String(l.bug.created || '').slice(0, 10) + ' · ' + (l.bug.state || '') + (report.bugListReady && !listIds[l.bug.id] ? ' · NOT in Bug List' : '');
+      return span;
+    }
+    function keep(row) { if (filter === 'gap') return row.gaps > 0; if (filter === 'bugs') return row.bugs.length > 0; if (filter === 'none') return !row.bugs.length; return true; }
+    var rows = report.rows.filter(keep), names = D.categoryNames ? D.categoryNames() : [''];
+    names.forEach(function (name) {
+      var members = rows.filter(function (r) { return (r.category || '') === name || (!D.categoryNames && true); }).sort(function (a, b) { return b.gaps - a.gaps || String(a.title).localeCompare(String(b.title)); });
+      if (!members.length) return;
+      var h = D.el('tr', 'omatrix-cat'), hc = D.el('td', 'omatrix-cat-name'); hc.colSpan = racks.length + 2;
+      hc.appendChild(document.createTextNode(name + ' '));
+      var reviewer = D.categoryReviewer ? D.categoryReviewer(name) : ''; hc.appendChild(D.el('span', 'omatrix-cat-owner' + (reviewer ? '' : ' unset'), 'Log reviewer: ' + (reviewer || '—')));
+      hc.appendChild(D.el('span', 'omatrix-cat-count', members.length + ' item(s) · ' + members.reduce(function (n, r) { return n + r.gaps; }, 0) + ' Failed without in-test bug'));
+      h.appendChild(hc); tbody.appendChild(h);
+      members.forEach(function (row) {
+        var tr = D.el('tr'); tr.appendChild(D.el('td', 'itb-title', row.title));
+        row.cells.forEach(function (c, i) {
+          var td = D.el('td', 'itb-cell' + (c && c.gap ? ' gap' : ''));
+          if (!c) { td.appendChild(D.el('span', 'omatrix-cell gap', '–')); tr.appendChild(td); return; }
+          var oc = D.el('span', 'omatrix-cell', D.OUTCOME_ABBR[c.outcome] || '?'); oc.style.background = D.outcomeColor(c.outcome); oc.title = racks[i].label + ' · #' + c.testCase.id + ' · ' + c.outcome; td.appendChild(oc);
+          c.inTest.forEach(function (l) { td.appendChild(bugChip(l)); });
+          if (c.gap) td.appendChild(D.el('span', 'itb-missing', 'missing bug'));
+          if (c.older) { var o = D.el('span', 'itb-older', '+' + c.older + ' older'); o.title = c.older + ' linked Bug(s) created outside ' + report.range.label; td.appendChild(o); }
+          tr.appendChild(td);
+        });
+        var uc = D.el('td', 'itb-unique');
+        if (!row.bugs.length) uc.textContent = '—';
+        row.bugs.forEach(function (b) { var a = D.bugAnchor(b); a.title = (b.title || '') + ' · ' + (b.state || ''); uc.appendChild(a); uc.appendChild(document.createTextNode(' ')); });
+        tr.appendChild(uc); tbody.appendChild(tr);
+      });
+    });
+    if (!rows.length) { var er = D.el('tr'), ec = D.el('td', 'empty', 'No test items match this filter.'); ec.colSpan = racks.length + 2; er.appendChild(ec); tbody.appendChild(er); }
+    sel.addEventListener('change', function () { D.S.inTestFilter = sel.value; wrap.parentNode && wrap.parentNode.replaceChild(D.inTestBugView(racks), wrap); });
+    // Comparison with the Bug List query
+    var cmp = D.el('div', 'grid itb-cmp');
+    function listBox(title, items, render) {
+      var b = D.el('div', 'itb-cmp-box'); b.appendChild(D.el('h4', null, title + ' (' + items.length + ')'));
+      if (!report.bugListReady) { b.appendChild(D.el('div', 'small', 'Bug List is still loading …')); return b; }
+      if (!items.length) { b.appendChild(D.el('div', 'small', 'None')); return b; }
+      var ul = D.el('ul', 'status-break-cases flat'); items.forEach(function (x) { ul.appendChild(render(x)); }); b.appendChild(ul); return b;
+    }
+    cmp.appendChild(listBox('Linked in-test bugs not in the Bug List query', report.notInList, function (x) {
+      var li = D.el('li'); li.appendChild(D.bugAnchor(x.bug)); li.appendChild(D.el('span', 'status-break-case-title', x.bug.title || ''));
+      li.appendChild(D.el('span', 'status-break-case-extra', x.where.map(function (w) { return '#' + w.testCase.id; }).join(', '))); return li;
+    }));
+    cmp.appendChild(listBox('Bug List bugs created in the window but not linked to any Case', report.listOnly, function (b) {
+      var li = D.el('li'), a = D.el('a', null, '#' + b.id); a.href = b.url; a.target = '_blank'; a.rel = 'noopener'; li.appendChild(a);
+      li.appendChild(D.el('span', 'status-break-case-title', b.title || '')); li.appendChild(D.el('span', 'status-break-case-extra', String(b.created || '').slice(0, 10) + ' · ' + (b.state || ''))); return li;
+    }));
+    wrap.appendChild(cmp);
+    return wrap;
+  };
+  D.CSS += "\n.itb-table{min-width:1250px;font-size:12px}.itb-table td{vertical-align:top;padding:5px 6px}.itb-title{max-width:340px;color:#e2e8f0}.itb-cell{min-width:120px}.itb-cell.gap{background:rgba(251,146,60,.08)}"
+    + "\n.itb-bug{display:inline-flex;align-items:center;gap:2px;margin:0 0 2px 4px;white-space:nowrap}.itb-bug.not-in-list a{color:#fbbf24!important}.itb-kind{border-radius:4px;padding:0 3px;font-size:9px;font-weight:800;color:#0b1220}"
+    + "\n.itb-missing{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;border:1px dashed #fb923c;color:#fb923c;font-size:10px;font-weight:700}.itb-older{display:inline-block;margin-left:4px;color:#5f7391;font-size:10px}"
+    + "\n.itb-unique a{margin-right:4px}.itb-cmp{margin-top:12px}.itb-cmp-box{border:1px solid #1e2b45;border-radius:8px;padding:8px 10px;background:#0f1a2e}.itb-cmp-box h4{margin:0 0 6px;font-size:12px;color:#cbd5e1}";
   D.buildPanels = function () {
     D.updateIdentity();
     var tabsBar = document.getElementById('tabs'), host = document.getElementById('panels');
@@ -3093,6 +3224,8 @@
         refs.tableBox = D.el('div'); b3.appendChild(refs.tableBox); panel.appendChild(b3);
         var fbBox = D.box('Bugs on Failed / Blocked test items — Child vs Related, by Rack');
         refs.failBugHost = D.el('div'); fbBox.appendChild(refs.failBugHost); panel.appendChild(fbBox);
+        var itbBox = D.box('Bugs found in this test — by test item × Rack (Child or Related)');
+        refs.inTestHost = D.el('div'); itbBox.appendChild(refs.inTestHost); panel.appendChild(itbBox);
         var b4 = D.box('Bug tracking — verified Test Case Child links');
         refs.bugRackBox = D.el('div'); b4.appendChild(refs.bugRackBox);
         refs.bugStatsBox = D.el('div'); b4.appendChild(refs.bugStatsBox);
@@ -3204,6 +3337,8 @@
         p.bugBox.innerHTML = ''; p.bugBox.appendChild(D.bugTable(phaseRacks, bugInventory));
         p.failBugHost.innerHTML = '';
         p.failBugHost.appendChild(resultReady ? D.failBugOverview(phaseRacks) : D.el('div', 'small', 'Appears after Test Point outcomes load …'));
+        p.inTestHost.innerHTML = '';
+        p.inTestHost.appendChild(resultReady ? D.inTestBugView(phaseRacks) : D.el('div', 'small', 'Appears after Test Point outcomes load …'));
         var counts = D.countStates(f);
         D.drawInto(p.chartHost, counts);
         p.legendHost.innerHTML = ''; p.legendHost.appendChild(D.legend(counts));
@@ -3335,7 +3470,7 @@
       var cases = D.allScopedCases();
       var bugTask = D.finishDeferredBugValidation(res.deferredBugContext, D.S.racks).then(function () { D.refresh(); });
       var resultTask = D.loadSupplementalData(D.baseFor(), cases).then(function () { D.refresh(); });
-      var bugListTask = D.loadBugList().then(function () { D.refreshPhaseTabs(); D.renderExtraView(); });
+      var bugListTask = D.loadBugList().then(function () { D.refreshPhaseTabs(); D.renderExtraView(); if (!D.S.view || D.S.view === 'dashboard') D.refresh(); });
       await Promise.all([
         bugListTask,
         bugTask,
