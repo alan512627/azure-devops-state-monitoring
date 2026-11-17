@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.15.0，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.15.1，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1456,3 +1456,4 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
   6. **去重**：同一 Bug 掛多個 Rack／Case 只算一個（測項層級與總數皆是）。範圍為該 Phase 全部 Case（不套用 Time range）。
 - 卡片：Test items、Failed（測項 × Rack 格數）、Failed without in-test bug、In-test bugs linked、Also in Bug List、Linked not in Bug List、Bug List only。篩選：All／Failed without in-test bug／Has in-test bugs／No in-test bugs；CSV 匯出每測項各 Rack 的 outcome 與期間內 Bug。
 - 資料：核心欄位加入 `System.CreatedBy`；Related 讀取加入 `System.CreatedDate`；Bug 物件新增 `created`、`createdBy`。Bug List 載入完成後會觸發 Dashboard 重新整理，讓比對欄位更新。新增 `tests/in-test-bugs.test.cjs`。
+- （v1.15.1）新增 **By Bug** 表：每個期間內 Bug 一列，R1–R5 欄列出該 Rack 掛此 Bug 的 Case（outcome＋link 類型），並統計出現的 Rack 數、Case 數、測項數與是否在 Bug List，依 Rack 數由多到少排序；上方摘要「n Bug(s) on k Racks」。說明「不重複計算」只用於總數（卡片改名 `IN-TEST BUGS (UNIQUE)`、每列 `Unique in-test bugs (all Racks)`），Rack 格子與 By Bug 表仍逐 Rack 呈現。`D.inTestReport` 回傳新增 `byBug`（`racks`、`rackCount`、`caseCount`、`itemCount`、`inList`）。

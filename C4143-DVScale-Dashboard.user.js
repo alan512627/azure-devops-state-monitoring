@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.15.0
+// @version      1.15.1
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -3061,11 +3061,17 @@
     var range = D.testWindowRange(), index = D.crossRackIndex(racks), bugList = D.S.bugList && D.S.bugList.status === 'ok' ? D.S.bugList.items : null;
     var listIds = {}; (bugList || []).forEach(function (b) { listIds[b.id] = b; });
     var allLinked = {}, rows = Object.keys(index).map(function (key) {
-      var itemBugs = {}, cells = index[key].map(function (testCase) {
+      var itemBugs = {}, cells = index[key].map(function (testCase, rackIndex) {
         if (!testCase) return null;
         var o = D.caseOutcome(testCase), outcome = D.resultOutcomeKey(o && o.outcome), links = D.caseAllBugLinks(testCase);
         var inTest = links.filter(function (l) { return D.inTestWindow(l.bug.created, range); }), older = links.length - inTest.length;
-        inTest.forEach(function (l) { itemBugs[l.bug.id] = l.bug; allLinked[l.bug.id] = allLinked[l.bug.id] || { bug: l.bug, where: [] }; allLinked[l.bug.id].where.push({ testCase: testCase }); });
+        inTest.forEach(function (l) {
+          itemBugs[l.bug.id] = l.bug;
+          var e = allLinked[l.bug.id] = allLinked[l.bug.id] || { bug: l.bug, where: [], racks: {}, items: {}, links: {} };
+          e.where.push({ testCase: testCase, rackIndex: rackIndex, outcome: outcome, link: l.link });
+          e.racks[rackIndex] = (e.racks[rackIndex] || []).concat([{ testCase: testCase, outcome: outcome, link: l.link }]);
+          e.items[key] = 1; e.links[l.link] = 1;
+        });
         return { testCase: testCase, outcome: outcome, inTest: inTest, older: older, gap: outcome === 'Failed' && !inTest.length };
       });
       var first = cells.filter(Boolean)[0];
@@ -3074,9 +3080,13 @@
         failed: cells.filter(function (c) { return c && c.outcome === 'Failed'; }).length, gaps: cells.filter(function (c) { return c && c.gap; }).length };
     });
     var linkedIds = Object.keys(allLinked);
+    var byBug = linkedIds.map(function (id) {
+      var e = allLinked[id]; e.rackCount = Object.keys(e.racks).length; e.itemCount = Object.keys(e.items).length; e.caseCount = e.where.length; e.inList = !!listIds[id];
+      return e;
+    }).sort(function (a, b) { return b.rackCount - a.rackCount || b.caseCount - a.caseCount || (+a.bug.id - +b.bug.id); });
     var notInList = bugList ? linkedIds.filter(function (id) { return !listIds[id]; }).map(function (id) { return allLinked[id]; }) : [];
     var listOnly = bugList ? bugList.filter(function (b) { return D.inTestWindow(b.created, range) && !allLinked[b.id]; }) : [];
-    return { range: range, rows: rows, linked: linkedIds.length, bugListReady: !!bugList, inList: bugList ? linkedIds.length - notInList.length : 0, notInList: notInList, listOnly: listOnly,
+    return { range: range, rows: rows, byBug: byBug, linked: linkedIds.length, bugListReady: !!bugList, inList: bugList ? linkedIds.length - notInList.length : 0, notInList: notInList, listOnly: listOnly,
       failedCells: rows.reduce(function (n, r) { return n + r.failed; }, 0), gapCells: rows.reduce(function (n, r) { return n + r.gaps; }, 0) };
   };
   D.exportInTestCsv = function (report, racks) {
@@ -3094,7 +3104,7 @@
     wrap.appendChild(D.el('div', 'small fb-note', 'Rules · Test window ' + report.range.label + ' (Taipei time), by Bug Created Date · A Bug counts when it is linked to the Case as Child or Related (any Child link, verified or not) · Rows are test items matched by title across Racks · "Missing bug" = the Rack\'s outcome is Failed but no Bug in the window is linked · Compared with the Bug List query by Bug ID; a yellow Bug ID is not in the Bug List · Tags: C = Child, R = Related, C+R = both · "+n older" = linked Bugs created outside the window (not listed) · Every Case in the phase (time range not applied).'));
     var cards = D.el('div', 'cards fb-cards');
     [['TEST ITEMS', report.rows.length, '#60a5fa'], ['FAILED (ITEM × RACK)', report.failedCells, '#f87171'], ['FAILED WITHOUT IN-TEST BUG', report.gapCells, '#fb923c'],
-      ['IN-TEST BUGS LINKED', report.linked, '#a78bfa'], ['ALSO IN BUG LIST', report.bugListReady ? report.inList : '…', '#34d399'],
+      ['IN-TEST BUGS (UNIQUE)', report.linked, '#a78bfa'], ['ALSO IN BUG LIST', report.bugListReady ? report.inList : '…', '#34d399'],
       ['LINKED, NOT IN BUG LIST', report.bugListReady ? report.notInList.length : '…', '#fbbf24'], ['BUG LIST ONLY (NOT LINKED)', report.bugListReady ? report.listOnly.length : '…', '#94a3b8']]
       .forEach(function (c) { cards.appendChild(D.card(c[0], c[1], c[2])); });
     wrap.appendChild(cards);
@@ -3106,7 +3116,7 @@
     var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'itb-table'), hr = D.el('tr'), thead = D.el('thead');
     hr.appendChild(D.el('th', null, 'Test item'));
     racks.forEach(function (r) { hr.appendChild(D.el('th', null, 'R' + (D.rackNumber(r) || '?'))); });
-    hr.appendChild(D.el('th', null, 'Unique in-test bugs'));
+    hr.appendChild(D.el('th', null, 'Unique in-test bugs (all Racks)'));
     thead.appendChild(hr); table.appendChild(thead); var tbody = D.el('tbody'); table.appendChild(tbody); scroll.appendChild(table); wrap.appendChild(scroll);
     function bugChip(l) {
       var span = D.el('span', 'itb-bug' + (report.bugListReady && !listIds[l.bug.id] ? ' not-in-list' : '')), a = D.bugAnchor(l.bug);
@@ -3143,6 +3153,37 @@
     });
     if (!rows.length) { var er = D.el('tr'), ec = D.el('td', 'empty', 'No test items match this filter.'); ec.colSpan = racks.length + 2; er.appendChild(ec); tbody.appendChild(er); }
     sel.addEventListener('change', function () { D.S.inTestFilter = sel.value; wrap.parentNode && wrap.parentNode.replaceChild(D.inTestBugView(racks), wrap); });
+    // By Bug: on which Racks / Cases each in-test Bug appears
+    var bb = D.el('div', 'itb-bybug'); bb.appendChild(D.el('h4', null, 'By Bug — on which Racks each in-test Bug appears (' + report.byBug.length + ')'));
+    var spread = {}; report.byBug.forEach(function (e) { spread[e.rackCount] = (spread[e.rackCount] || 0) + 1; });
+    bb.appendChild(D.el('div', 'small', Object.keys(spread).sort(function (a, b) { return b - a; }).map(function (k) { return spread[k] + ' Bug(s) on ' + k + ' Rack' + (+k === 1 ? '' : 's'); }).join(' · ') || 'No in-test Bugs linked.'));
+    if (report.byBug.length) {
+      var bs = D.el('div', 'table-scroll'), bt = D.el('table', 'itb-table'), bh = D.el('tr'), bth = D.el('thead');
+      ['Bug', 'State', 'Created', 'In Bug List'].concat(racks.map(function (r) { return 'R' + (D.rackNumber(r) || '?'); })).concat(['Racks', 'Cases', 'Test items']).forEach(function (h) { bh.appendChild(D.el('th', null, h)); });
+      bth.appendChild(bh); bt.appendChild(bth); var bb2 = D.el('tbody');
+      report.byBug.forEach(function (e) {
+        var tr = D.el('tr'), bc = D.el('td', 'itb-title'); bc.appendChild(D.bugAnchor(e.bug)); bc.appendChild(document.createTextNode(' ' + (e.bug.title || ''))); tr.appendChild(bc);
+        var sc = D.el('td'), st = D.el('span', 'chip', e.bug.state || '?'); st.style.background = D.bugStateColor ? D.bugStateColor(e.bug.state || 'Unknown') : D.colorFor(e.bug.state); sc.appendChild(st); tr.appendChild(sc);
+        tr.appendChild(D.el('td', null, String(e.bug.created || '').slice(0, 10)));
+        tr.appendChild(D.el('td', null, report.bugListReady ? (e.inList ? 'Yes' : 'No') : '…'));
+        racks.forEach(function (rack, i) {
+          var td = D.el('td', 'itb-cell'), hits = e.racks[i];
+          if (!hits) { td.appendChild(D.el('span', 'small', '·')); tr.appendChild(td); return; }
+          hits.forEach(function (h) {
+            var a = D.caseAnchor(h.testCase); a.title = (h.testCase.title || '') + ' · ' + h.outcome + ' · ' + D.FAILBUG_LINK[h.link];
+            var oc = D.el('span', 'omatrix-cell mini', D.OUTCOME_ABBR[h.outcome] || '?'); oc.style.background = D.outcomeColor(h.outcome); oc.style.marginLeft = '0';
+            td.appendChild(oc); td.appendChild(document.createTextNode(' ')); td.appendChild(a);
+            td.appendChild(D.el('span', 'itb-kind fb-' + h.link, h.link === 'both' ? 'C+R' : h.link === 'child' ? 'C' : 'R'));
+            td.appendChild(D.el('br'));
+          });
+          tr.appendChild(td);
+        });
+        tr.appendChild(D.el('td', 'num', String(e.rackCount))); tr.appendChild(D.el('td', 'num', String(e.caseCount))); tr.appendChild(D.el('td', 'num', String(e.itemCount)));
+        bb2.appendChild(tr);
+      });
+      bt.appendChild(bb2); bs.appendChild(bt); bb.appendChild(bs);
+    }
+    wrap.appendChild(bb);
     // Comparison with the Bug List query
     var cmp = D.el('div', 'grid itb-cmp');
     function listBox(title, items, render) {
@@ -3165,7 +3206,7 @@
   D.CSS += "\n.itb-table{min-width:1250px;font-size:12px}.itb-table td{vertical-align:top;padding:5px 6px}.itb-title{max-width:340px;color:#e2e8f0}.itb-cell{min-width:120px}.itb-cell.gap{background:rgba(251,146,60,.08)}"
     + "\n.itb-bug{display:inline-flex;align-items:center;gap:2px;margin:0 0 2px 4px;white-space:nowrap}.itb-bug.not-in-list a{color:#fbbf24!important}.itb-kind{border-radius:4px;padding:0 3px;font-size:9px;font-weight:800;color:#0b1220}"
     + "\n.itb-missing{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;border:1px dashed #fb923c;color:#fb923c;font-size:10px;font-weight:700}.itb-older{display:inline-block;margin-left:4px;color:#5f7391;font-size:10px}"
-    + "\n.itb-unique a{margin-right:4px}.itb-cmp{margin-top:12px}.itb-cmp-box{border:1px solid #1e2b45;border-radius:8px;padding:8px 10px;background:#0f1a2e}.itb-cmp-box h4{margin:0 0 6px;font-size:12px;color:#cbd5e1}";
+    + "\n.itb-unique a{margin-right:4px}.itb-cmp{margin-top:12px}.itb-bybug{margin-top:14px}.itb-bybug h4{margin:0 0 4px;font-size:12px;color:#cbd5e1}.itb-bybug .itb-table{margin-top:6px}.itb-cmp-box{border:1px solid #1e2b45;border-radius:8px;padding:8px 10px;background:#0f1a2e}.itb-cmp-box h4{margin:0 0 6px;font-size:12px;color:#cbd5e1}";
   D.buildPanels = function () {
     D.updateIdentity();
     var tabsBar = document.getElementById('tabs'), host = document.getElementById('panels');

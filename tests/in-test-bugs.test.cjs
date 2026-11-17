@@ -23,4 +23,7 @@ assert.deepStrictEqual([psu.gaps, psu.cells[1]], [1, null], 'Failed with only an
 assert.deepStrictEqual([r.failedCells, r.gapCells, r.linked, r.inList], [3, 1, 2, 1]);
 assert.deepStrictEqual(r.notInList.map(x => x.bug.id), [4]);
 assert.deepStrictEqual(r.listOnly.map(x => x.id), [9], 'Bug List only lists in-window bugs');
-console.log('PASS: in-test bugs use the Taipei test window, merge Child and Related per Rack and compare with the Bug List');
+const bug1 = r.byBug.find(e => e.bug.id === 1);
+assert.deepStrictEqual([bug1.rackCount, bug1.caseCount, bug1.itemCount, Object.keys(bug1.racks).sort(), bug1.inList], [2, 2, 1, ['0', '1'], true], 'Bug 1 appears on Rack 1 and Rack 2');
+assert.strictEqual(r.byBug[0].bug.id, 1, 'Bugs on more Racks sort first');
+console.log('PASS: in-test bugs use the Taipei test window, merge Child and Related per Rack and compare with the Bug List, with per-Bug Rack spread');

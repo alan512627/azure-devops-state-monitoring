@@ -4,13 +4,13 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.15.0；本分支待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.15.1；本分支待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
 - Azure DevOps project：`Dev`
 
-**本次測試發現的 Bug（10/08–11/13）**：Overview 新增 `Bugs found in this test — by test item × Rack`。規則：測試期間 2026-10-08～2026-11-13（台北時間，依 Bug Created Date，可在 `D.QUERY_EXTRAS[...].testWindow` 或 `D.TEST_WINDOW` 調整）；Bug 以 Child（任何 Child link，不要求 History 驗證）或 Related link 掛在 Case 上即計入；每列是一個測項（依標題跨 Rack 對應），R1–R5 每格顯示該 Rack 的 outcome 與期間內的 Bug（C／R／C+R 標示 link 類型，期間外的只顯示 `+n older`），Failed 但沒有期間內 Bug 的格子標 `missing bug`；依分類分段並顯示 Log reviewer。與 Bug List query 以 Bug ID 比對：黃色 Bug ID 表示不在 Bug List，下方另列「已掛 Case 但不在 Bug List」與「Bug List 中期間內建立但未掛任何 Case」。可篩選、下載 CSV。
+**本次測試發現的 Bug（10/08–11/13）**：Overview 新增 `Bugs found in this test — by test item × Rack`。規則：測試期間 2026-10-08～2026-11-13（台北時間，依 Bug Created Date，可在 `D.QUERY_EXTRAS[...].testWindow` 或 `D.TEST_WINDOW` 調整）；Bug 以 Child（任何 Child link，不要求 History 驗證）或 Related link 掛在 Case 上即計入；每列是一個測項（依標題跨 Rack 對應），R1–R5 每格顯示該 Rack 的 outcome 與期間內的 Bug（C／R／C+R 標示 link 類型，期間外的只顯示 `+n older`），Failed 但沒有期間內 Bug 的格子標 `missing bug`；依分類分段並顯示 Log reviewer。與 Bug List query 以 Bug ID 比對：黃色 Bug ID 表示不在 Bug List，下方另列「已掛 Case 但不在 Bug List」與「Bug List 中期間內建立但未掛任何 Case」。另有 **By Bug** 表：每個期間內 Bug 一列，顯示在 R1–R5 哪些 Rack 出現（該 Rack 的 Case、outcome、link 類型）、出現的 Rack 數／Case 數／測項數、是否在 Bug List，依出現 Rack 數排序。去重只用於總數（卡片與每列的 Unique 欄），各 Rack 格子與 By Bug 表仍逐 Rack 顯示。可篩選、下載 CSV。
 
 **Failed／Blocked 測項的 Bug（Child vs Related）**：Overview 新增 `Bugs on Failed / Blocked test items` 區塊——統計卡（Failed、Blocked、Child Bugs、Related Bugs、Child + Related、Unique Bugs、無 Bug 的 Failed／Blocked）、Rack 1–5 統計表（Failed、Blocked、有／無 Bug、Child、Related、Child + Related、不重複 Bug，All Racks 跨 Rack 去重），以及各 Rack 可展開的 Failed／Blocked Case → Bug 明細（Link 標 Child／Related／Child + Related，可篩選）。Failed 與 Blocked 分開統計（Execute Test Point outcome）；Child = 已驗證的 Child link，Related = Case 上指向 Bug 的 Related link。各 Rack 分頁卡片改為 FAILED ITEMS、BLOCKED ITEMS、CHILD BUGS、RELATED BUGS（皆只算 Failed／Blocked Case）與 ALL BUGS（該 Rack 所有 Case 的 Child + Related，不分 outcome），並加入同樣的明細表；原有 verified Child link 的 Bug 區保留在下方。Insights 新增 `Bugs linked as both Child and Related` 清單。
 
