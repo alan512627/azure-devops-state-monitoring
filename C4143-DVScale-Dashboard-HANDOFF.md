@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.14.1，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.14.2，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1437,3 +1437,10 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 ## 79. 2026-11-17 Bug List 加入 Created By 欄（v1.14.1）
 
 - Bug List 表格在 `Assigned To` 後新增 `Created By`（`System.CreatedBy` 顯示名稱，原本已讀取、只出現在 CSV／Excel），可點欄位排序，搜尋也比對建立者；搜尋框提示改為含 creator。PDF 匯出的 Bug 表同步加入 `Created By` 欄；CSV／Excel 原本已有。
+
+## 80. 2026-11-17 修正 Failed／Blocked Bug 報表 Child 與 Related 全為 0（v1.14.2）
+
+- 現象：v1.14.0 上線後，Overview `Bugs on Failed / Blocked test items` 的 Child、Related 在所有 Rack 皆為 0；使用者以 Console 確認 Failed Case 上確實有 `System.LinkTypes.Related`（→ Bug）與 `System.LinkTypes.Hierarchy-Forward`（Child → Bug）link，且同一批 Case 也有許多 Related → **Test Case**（例如 33201xx、36880xx、4131xxx，部分屬其他 Project／舊計畫）。
+- 根因：v1.14.0 把 Related 目標併入 Child 的 `linkedFetchIds`，以完整欄位清單（含自訂 metric 欄位、`System.Tags` 等）呼叫 `workitemsbatch`。Related 目標包含其他 Project／Process 的 Test Case，該處沒有這些欄位，整批請求失敗 → 進入 `catch (bugLinkError)`，同時清空 `linkedIdsOf` 與 `relatedIdsOf`，Child 與 Related 一起歸零。mock 重現：給 Related 加上「以完整欄位讀取會 400」的外部 Test Case，v1.14.0 得到 0／0，與使用者畫面一致。
+- 修正：Related 目標改放獨立的 `relatedFetchIds`，在 Child 流程結束後另外讀取，只用基本欄位（Id、WorkItemType、Title、State、AssignedTo、CreatedBy、TeamProject，`errorPolicy: omit`），只保留 Work Item Type = Bug；Bug 的 Severity／Priority 再以第二次請求補上，失敗不影響其他資料。Child 流程失敗時不再清除 Related；Related 讀取失敗時以 `D.S.relatedLinkWarning` 顯示在狀態列與報表說明，Child 不受影響。報表說明也會顯示 Child link 驗證錯誤。
+- 新增 `tests/related-link-isolation.test.cjs`。

@@ -1,0 +1,11 @@
+const fs = require('fs');
+const assert = require('assert');
+const source = fs.readFileSync('C4143-DVScale-Dashboard.user.js', 'utf8');
+const start = source.indexOf('  D.runQuery = async function'), end = source.indexOf('\n  };\n', start);
+const body = source.slice(start, end);
+assert(/relatedFetchIds\.push\(relatedId\)/.test(body), 'Related targets go to their own fetch list');
+assert(!/linkedFetchIds\.push\(relatedId\)/.test(body), 'Related targets must not join the Child-link field batch');
+const catchBlock = body.slice(body.indexOf('} catch (bugLinkError) {'), body.indexOf('D.S.relatedLinkWarning = \'\';'));
+assert(!/relatedIdsOf\s*=\s*\{\}/.test(catchBlock), 'a Child-link failure must not clear Related links');
+assert(body.indexOf("fields: relatedBase") > body.indexOf('} catch (bugLinkError) {'), 'Related fields are fetched after, and independent of, the Child pipeline');
+console.log('PASS: Related link targets are fetched separately so other-project Test Cases cannot wipe Child / Related bugs');
