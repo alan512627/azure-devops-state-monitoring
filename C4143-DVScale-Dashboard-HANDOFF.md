@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.14.0，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.14.1，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1433,3 +1433,7 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - Rack 分頁：卡片 `CHILD BUGS`（原為所有 Case 的 Child Bug）改為 FAILED ITEMS、BLOCKED ITEMS、CHILD BUGS、RELATED BUGS（Failed／Blocked Case）＋ ALL BUGS（該 Rack 所有 Case 的 Child + Related）；新增同樣的明細表，原 Child Bug 清單保留在下方。
 - Insights：新增 `Bugs linked as both Child and Related`（`D.childRelatedOverlap`）：所有 Case、不分 outcome，列 Bug、State、Child link 所在 Rack · Case、Related link 所在 Rack · Case、是否同一 Case，供使用者確認重疊 Bug 的計算方式。
 - 新增 `tests/fail-bug-report.test.cjs`。
+
+## 79. 2026-11-17 Bug List 加入 Created By 欄（v1.14.1）
+
+- Bug List 表格在 `Assigned To` 後新增 `Created By`（`System.CreatedBy` 顯示名稱，原本已讀取、只出現在 CSV／Excel），可點欄位排序，搜尋也比對建立者；搜尋框提示改為含 creator。PDF 匯出的 Bug 表同步加入 `Created By` 欄；CSV／Excel 原本已有。

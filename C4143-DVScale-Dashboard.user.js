@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.14.0
+// @version      1.14.1
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2352,7 +2352,7 @@
       return '<tr><td class="n"><a href="' + esc(b.url) + '">' + esc(b.id) + '</a></td><td>' + esc(b.title) + '</td>'
         + '<td><span class="chip" style="background:' + D.bugStateColor(b.state || 'Unknown') + '">' + esc(b.state || 'Unknown') + '</span></td>'
         + '<td>' + (b.severity ? '<span class="chip" style="background:' + D.severityColor(b.severity) + '">' + esc(b.severity) + '</span>' : '-') + '</td>'
-        + '<td class="n">' + esc(b.priority || '-') + '</td><td>' + esc(b.assignedTo && b.assignedTo !== '-' ? b.assignedTo : 'Unassigned') + '</td>'
+        + '<td class="n">' + esc(b.priority || '-') + '</td><td>' + esc(b.assignedTo && b.assignedTo !== '-' ? b.assignedTo : 'Unassigned') + '</td><td>' + esc(b.createdBy && b.createdBy !== '-' ? b.createdBy : '-') + '</td>'
         + '<td>' + esc(D.fmt(b.created)) + '</td><td>' + esc(D.fmt(b.changed)) + '</td>'
         + '<td>' + esc((v.links || []).map(function (l) { return l.rack + ' · #' + l.caseId; }).join(', ') || '-') + '</td></tr>';
     }).join('');
@@ -2366,7 +2366,7 @@
       + '<div class="meta">Generated ' + esc(D.fmt(new Date().toISOString())) + ' · ' + esc(D.bugFilterLabel()) + ' · ' + bugs.length + ' Bug(s)' + (D.S.bugList && D.S.bugList.loadedAt ? ' · data loaded ' + esc(D.fmt(D.S.bugList.loadedAt)) : '') + '</div>'
       + '<div class="cards">' + [['TOTAL BUGS', bugs.length, '#fb923c'], ['OPEN', open, '#f87171'], ['RESOLVED', resolved, '#fbbf24'], ['CLOSED', closed, '#34d399']].map(function (c) { return '<div class="card" style="--c:' + c[2] + '"><span>' + c[0] + '</span><b>' + c[1] + '</b></div>'; }).join('') + '</div>'
       + '<div class="charts">' + (charts || []).map(function (c) { return '<div class="chart"><h3>' + esc(c.title) + '</h3>' + c.html + '</div>'; }).join('') + '</div>'
-      + '<table><thead><tr><th>ID</th><th>Title</th><th>State</th><th>Severity</th><th>Priority</th><th>Assigned To</th><th>Created</th><th>Changed</th><th>Linked Cases</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="9">No Bugs match the filter.</td></tr>') + '</tbody></table>'
+      + '<table><thead><tr><th>ID</th><th>Title</th><th>State</th><th>Severity</th><th>Priority</th><th>Assigned To</th><th>Created By</th><th>Created</th><th>Changed</th><th>Linked Cases</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="10">No Bugs match the filter.</td></tr>') + '</tbody></table>'
       + '</body></html>';
     var frame = D.el('iframe'); frame.setAttribute('aria-hidden', 'true');
     frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
@@ -2408,7 +2408,7 @@
     grid.appendChild(b1); grid.appendChild(b2); wrap.appendChild(grid);
 
     var box = D.box('Bugs (' + items.length + ')'), toolbar = D.el('div', 'bug-toolbar');
-    var search = D.el('input'); search.type = 'search'; search.placeholder = 'Search ID, title, assignee, tag, Case …'; search.value = D.S.bugFilterText || '';
+    var search = D.el('input'); search.type = 'search'; search.placeholder = 'Search ID, title, assignee, creator, tag, Case …'; search.value = D.S.bugFilterText || '';
     var stateSel = D.el('select'), states = D.orderBugStates(Object.keys(stateCounts));
     [['__all', 'All states'], ['__open', 'Open only']].concat(states.map(function (s) { return [s, s]; })).forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; stateSel.appendChild(opt); });
     stateSel.value = D.S.bugFilterState || '__all';
@@ -2427,7 +2427,7 @@
     exportBox.appendChild(csvBtn); exportBox.appendChild(xlsxBtn); exportBox.appendChild(pdfBtn);
     toolbar.appendChild(search); toolbar.appendChild(stateSel); toolbar.appendChild(count); toolbar.appendChild(exportBox); box.appendChild(toolbar);
     var scroll = D.el('div', 'table-scroll'), table = D.el('table', 'bug-list-table'), thead = D.el('thead'), hr = D.el('tr');
-    var cols = [['id', 'ID'], ['title', 'Title'], ['state', 'State'], ['severity', 'Severity'], ['priority', 'Priority'], ['assignedTo', 'Assigned To'], ['created', 'Created'], ['changed', 'Changed'], ['cases', 'Linked Cases (Rack · Case)']];
+    var cols = [['id', 'ID'], ['title', 'Title'], ['state', 'State'], ['severity', 'Severity'], ['priority', 'Priority'], ['assignedTo', 'Assigned To'], ['createdBy', 'Created By'], ['created', 'Created'], ['changed', 'Changed'], ['cases', 'Linked Cases (Rack · Case)']];
     var sort = D.S.bugSort || { key: 'id', dir: -1 };
     cols.forEach(function (col) {
       var th = D.el('th', 'sortable', col[1] + (sort.key === col[0] ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''));
@@ -2449,7 +2449,7 @@
         if (st === '__open' && !D.bugIsOpen(bug)) return;
         if (st !== '__all' && st !== '__open' && bug.state !== st) return;
         var caseLinks = links[String(bug.id)] || [];
-        var hay = [bug.id, bug.title, bug.state, bug.severity, bug.priority, bug.assignedTo, bug.tags, bug.area].concat(caseLinks.map(function (l) { return l.caseId + ' ' + l.rack + ' ' + l.title; })).join(' ').toLowerCase();
+        var hay = [bug.id, bug.title, bug.state, bug.severity, bug.priority, bug.assignedTo, bug.createdBy, bug.tags, bug.area].concat(caseLinks.map(function (l) { return l.caseId + ' ' + l.rack + ' ' + l.title; })).join(' ').toLowerCase();
         if (q && hay.indexOf(q) < 0) return;
         shown++; visible.push({ bug: bug, links: caseLinks });
         var tr = D.el('tr'), idCell = D.el('td', 'num'), a = D.el('a', null, String(bug.id)); a.href = bug.url; a.target = '_blank'; a.rel = 'noopener'; idCell.appendChild(a); tr.appendChild(idCell);
@@ -2457,6 +2457,7 @@
         var stCell = D.el('td'), stChip = D.el('span', 'chip', bug.state || 'Unknown'); stChip.style.background = D.bugStateColor(bug.state || 'Unknown'); stCell.appendChild(stChip); tr.appendChild(stCell);
         var sevCell = D.el('td'); if (bug.severity) { var sv = D.el('span', 'chip', bug.severity); sv.style.background = D.severityColor(bug.severity); sevCell.appendChild(sv); } else sevCell.textContent = '-'; tr.appendChild(sevCell);
         tr.appendChild(D.el('td', 'num', bug.priority || '-')); tr.appendChild(D.el('td', null, bug.assignedTo && bug.assignedTo !== '-' ? bug.assignedTo : 'Unassigned'));
+        tr.appendChild(D.el('td', null, bug.createdBy && bug.createdBy !== '-' ? bug.createdBy : '-'));
         tr.appendChild(D.el('td', null, D.fmt(bug.created))); tr.appendChild(D.el('td', null, D.fmt(bug.changed)));
         var linkCell = D.el('td', 'bug-cases');
         if (!caseLinks.length) linkCell.textContent = '-';
@@ -2536,7 +2537,7 @@
   D.CSS += "\n.phase-tab[data-view='bugs']{--phase-accent:#fb923c}.phase-tab[data-view='portal']{--phase-accent:#34d399}.phase-tab.extra-tab{flex:0 1 220px}.phase-tab.portal-sep{margin-left:auto}@media(max-width:620px){.phase-tab.portal-sep{margin-left:0}}"
     + "\n.extra-view{padding:16px 20px 28px;min-width:0}.extra-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px}.extra-head h2{margin:0;font-size:20px;color:#e2e8f0}.extra-head a{color:#93c5fd}.extra-head button{margin-left:auto}"
     + "\n.bug-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}.bug-toolbar input{flex:1 1 280px;min-width:200px;padding:7px 10px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.bug-toolbar select{min-width:160px}"
-    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1180px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{display:inline-block;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
+    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1320px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{display:inline-block;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
     + "\n.portal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.portal-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:#111d33;border:1px solid #253858;border-left:4px solid #34d399}.portal-card.unset{border-left-color:#fbbf24}"
     + "\n.portal-title{font-size:15px;font-weight:700;color:#e2e8f0}.portal-host{font-size:12px;color:#93c5fd;word-break:break-all}.portal-card.unset .portal-host{color:#fbbf24}.portal-actions{display:flex;gap:8px;margin-top:6px;align-items:center}.portal-actions button{width:auto}"
     + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";
