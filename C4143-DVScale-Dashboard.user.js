@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.16.8
+// @version      1.16.9
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -352,7 +352,7 @@
   D.runQuery = async function (options) {
     options = options || {};
     var deferBugHistory = !!options.deferBugHistory;
-    D.S.bugLinkWarning = '';
+    D.S.bugLinkWarning = ''; D.S.childLinkStats = null;
     var base = D.baseFor();
     var wiql = await D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/wiql/' + D.CFG.queryId + '?api-version=6.0&$top=5000');
     var rels = wiql.workItemRelations || [];
@@ -418,18 +418,14 @@
       // `$expand: relations` (ConflictingParametersException). Fetch these
       // independently, then join by work-item ID so Bug validation remains
       // strict without turning the supplemental section into a hard failure.
-      var linkedRelationBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
-        return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, '$expand': 'relations', errorPolicy: 'omit' }) });
-      });
+      var childRelRes = await D.safeBatch(base, linkedFetchIds, { '$expand': 'relations' }), linkedRelationBatches = [{ value: childRelRes.values }];
       // Child targets can live in other projects / process templates where the custom metric fields do not exist;
       // asking for those fields fails the whole batch and used to wipe every Child link. Read base fields only,
       // then add Severity / Priority for Bugs in a separate, optional request.
       var childBaseFields = baseFields.concat(['System.TeamProject']);
-      var linkedFieldBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
-        return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: childBaseFields, errorPolicy: 'omit' }) });
-      });
+      var childFieldRes = await D.safeBatch(base, linkedFetchIds, { fields: childBaseFields }), linkedFieldBatches = [{ value: childFieldRes.values }];
+      var childReadErrors = childRelRes.errors.concat(childFieldRes.errors);
+      D.S.childLinkStats = { targets: linkedFetchIds.length, unreadable: childFieldRes.errors.map(function (e) { return e.id; }), errors: childReadErrors.slice(0, 5) };
       var childBugIds = [];
       linkedFieldBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) {
         if (!it || !it.fields) return;
@@ -484,6 +480,7 @@
         D.S.bugLinkWarning = warningParts.join('; ');
       }
     } catch (bugLinkError) {
+      D.S.childLinkStats = Object.assign({}, D.S.childLinkStats || {}, { fatal: String((bugLinkError && bugLinkError.message) || bugLinkError) });
       linkedIdsOf = {};
       linkedMetaOf = {};
       D.S.bugLinkWarning = String((bugLinkError && bugLinkError.message) || bugLinkError);
@@ -630,6 +627,24 @@
     var cases = [];
     (racks || D.phaseRacks()).forEach(function (rack) { cases = cases.concat(D.collect(rack, 'Test Case')); });
     return cases;
+  };
+  // workitemsbatch that never fails as a whole: a failing chunk is split in halves until the bad IDs are isolated
+  // and skipped. Returns { values, errors }.
+  D.safeBatch = async function (base, ids, body) {
+    var values = [], errors = [], url = base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0';
+    async function run(chunk) {
+      try {
+        var res = await D.apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ ids: chunk, errorPolicy: 'omit' }, body)) });
+        (res.value || []).forEach(function (v) { if (v) values.push(v); });
+      } catch (error) {
+        if (chunk.length > 1) { var mid = Math.ceil(chunk.length / 2); await run(chunk.slice(0, mid)); await run(chunk.slice(mid)); }
+        else errors.push({ id: chunk[0], message: String((error && error.message) || error) });
+      }
+    }
+    var chunks = [];
+    for (var i = 0; i < ids.length; i += 200) chunks.push(ids.slice(i, i + 200));
+    await D.mapLimit(chunks, 3, run);
+    return { values: values, errors: errors };
   };
   D.mapLimit = async function (items, limit, worker) {
     var results = new Array(items.length), cursor = 0;
@@ -3375,6 +3390,12 @@
     head.appendChild(D.el('h2', null, D.phaseLabel(phase) + ' Bug Links')); wrap.appendChild(head);
     if (!D.S.testResults || D.S.testResults.status !== 'ok') { wrap.appendChild(D.el('div', 'empty', 'Waiting for Test Point outcomes …')); return wrap; }
     var chk = D.bugLinkCheck(racks), rep = chk.report;
+    var allCasesHere = racks.reduce(function (list, r) { return list.concat(D.collect(r, 'Test Case')); }, []), childLinkCount = allCasesHere.reduce(function (n, c) { return n + (c.childBugsRaw || []).length; }, 0), relLinkCount = allCasesHere.reduce(function (n, c) { return n + (c.relatedBugs || []).length; }, 0), cls = D.S.childLinkStats || {};
+    var diag = 'Links read: ' + childLinkCount + ' Child Bug link(s), ' + relLinkCount + ' Related Bug link(s) on ' + allCasesHere.length + ' Cases';
+    if (cls.fatal) diag += ' · Child links could not be read: ' + cls.fatal;
+    if (cls.unreadable && cls.unreadable.length) diag += ' · ' + cls.unreadable.length + ' Child target(s) skipped (no access / error): #' + cls.unreadable.slice(0, 10).join(', #') + (cls.errors && cls.errors[0] ? ' — ' + cls.errors[0].message : '');
+    if (D.S.bugLinkWarning && !/validating in the background/i.test(D.S.bugLinkWarning)) diag += ' · Validation: ' + D.S.bugLinkWarning;
+    wrap.appendChild(D.el('div', 'small fb-note' + (cls.fatal || (!childLinkCount && relLinkCount) ? ' conv-bad' : ''), diag));
     var phaseCaseCount = racks.reduce(function (n, r) { return n + D.collect(r, 'Test Case').length; }, 0), coveredCount = rep.rows.reduce(function (n, r) { return n + r.cells.filter(Boolean).length; }, 0);
     wrap.appendChild(D.el('div', 'small fb-note' + (coveredCount === phaseCaseCount ? '' : ' conv-bad'), 'Cases checked: ' + coveredCount + ' / ' + phaseCaseCount + ' on the ' + D.phaseLabel(phase) + ' tab (same Rack → Case IDs; Cases sharing a title on one Rack get their own row, marked "same title n/N")'));
     function rl(i) { return 'R' + (D.rackNumber(racks[i]) || i + 1); }
