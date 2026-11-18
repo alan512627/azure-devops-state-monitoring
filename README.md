@@ -4,13 +4,13 @@ Azure DevOps Rack Test Status Dashboard 提供 Tampermonkey userscript 與原生
 
 ## 目前版本
 
-- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.16.5；本分支待合併 `main`）
+- Dashboard：[C4143-DVScale-Dashboard.user.js](./C4143-DVScale-Dashboard.user.js)（固定安裝網址，腳本內版本 v1.16.7；本分支待合併 `main`）
 - 開發與維護文件：[C4143-DVScale-Dashboard-HANDOFF.md](./C4143-DVScale-Dashboard-HANDOFF.md)
 - Azure DevOps Extension：[azure-devops-extension](./azure-devops-extension)；可安裝 VSIX 位於 `release/C4143-DVScale-Dashboard-Extension.vsix`
 - Azure DevOps organization：`https://azurecsi.visualstudio.com`
 - Azure DevOps project：`Dev`
 
-**Phase 1／Phase 2 Bug Links 分頁（掛法檢查）**：Phase 分頁右側各一個分頁，只讀取已掛好的 link（不寫入 ADO），每次載入依目前的 link 與 outcome 動態重算，只看 10/08–11/13 建立的 Bug。規則**以測項為單位**（同一 Bug 掛在不同測項時分開判斷）：同一測項中同一 Bug 掛在 2 個以上 Rack 為 common bug——有掛在 Rack 1 時 Rack 1 應為 Child、其他 Rack 為 Related；沒掛在 Rack 1 時（不論 Rack 1 結果），由有此 Bug 的最小號 Rack 掛 Child、其他 Rack 為 Related。該測項只出現在一個 Rack 的 Bug 應在該 Rack 掛 Child。Failed 但沒掛期間內 Bug 的格子標紅，滑鼠移過去顯示原因；Blocked 不要求掛 Bug。內容：統計卡、各 Rack 統計、測項 × Rack 表（掛錯的 link 紅框）、Link type issues、Not in the Bug List（例如被客戶轉走）、Common Bugs、Rack-only Bugs。
+**Phase 1／Phase 2 Bug Links 分頁（掛法檢查）**：Phase 分頁右側各一個分頁，只讀取已掛好的 link（不寫入 ADO），每次載入依目前的 link 與 outcome 動態重算，只看 10/08–11/13 建立的 Bug。Rack 與 Case 與 Phase 分頁相同（每個 Rack 的每個 Case ID 都會檢查；同一 Rack 有同標題的多個 Case 時各自一列，標 `same title n/N`，頁首顯示 `Cases checked: n / N`）。規則**以測項為單位**（同一 Bug 掛在不同測項時分開判斷）：同一測項中同一 Bug 掛在 2 個以上 Rack 為 common bug——有掛在 Rack 1 時 Rack 1 應為 Child、其他 Rack 為 Related；沒掛在 Rack 1 時（不論 Rack 1 結果），由有此 Bug 的最小號 Rack 掛 Child、其他 Rack 為 Related。該測項只出現在一個 Rack 的 Bug 應在該 Rack 掛 Child。Failed 但沒掛期間內 Bug 的格子標紅，滑鼠移過去顯示原因；Blocked 不要求掛 Bug。內容：統計卡、各 Rack 統計、測項 × Rack 表（掛錯的 link 紅框）、Link type issues、Not in the Bug List（例如被客戶轉走）、Common Bugs、Rack-only Bugs。
 
 **本次測試發現的 Bug（10/08–11/13）**：Overview 新增 `Bugs found in this test — by test item × Rack`。規則：測試期間 2026-10-08～2026-11-13（台北時間，依 Bug Created Date，可在 `D.QUERY_EXTRAS[...].testWindow` 或 `D.TEST_WINDOW` 調整）；Bug 以 Child（任何 Child link，不要求 History 驗證）或 Related link 掛在 Case 上即計入；每列是一個測項（依標題跨 Rack 對應），R1–R5 每格顯示該 Rack 的 outcome 與期間內的 Bug（C／R／C+R 標示 link 類型，期間外的只顯示 `+n older`），Failed 但沒有期間內 Bug 的格子標 `missing bug`；依分類分段並顯示 Log reviewer。與 Bug List query 以 Bug ID 比對：黃色 Bug ID 表示不在 Bug List，下方另列「已掛 Case 但不在 Bug List」與「Bug List 中期間內建立但未掛任何 Case」。另有 **By Bug** 表：每個期間內 Bug 一列，顯示在 R1–R5 哪些 Rack 出現（該 Rack 的 Case、outcome、link 類型）、出現的 Rack 數／Case 數／測項數、是否在 Bug List，依出現 Rack 數排序。去重只用於總數（卡片與每列的 Unique 欄），各 Rack 格子與 By Bug 表仍逐 Rack 顯示。可篩選、下載 CSV。
 
@@ -24,7 +24,7 @@ Overview 與各 Rack 的 summary 卡片另顯示 `NOT UPDATED CASES`（Execute T
 
 Overview 兩個圓餅圖（Test Case State、Test Point Outcome）下方各有可展開／收合的清單：每個 status → Rack 1–5 的數量長條 → 該 Rack 的 Case（可連到 Work Item）。點圓餅圖的區塊或圖例 chip 會自動展開並捲動到該 status；展開狀態在重新整理後保留；`Expand all` 會連同各 Rack 的 Case 清單一起展開。各 Rack 分頁的兩個圓餅圖下方也有同樣的清單（status → Case），同樣支援點選導航。清單中每個 Case 後面有 `R1`–`R5` 色塊，顯示同一個 Case（依標題對應）在各 Rack 的狀態：State 清單顯示各 Rack 的 Work Item State，Outcome 清單顯示各 Rack 的 Execute Test Point Outcome；白框為目前這一筆，點色塊可開啟該 Rack 的 Case。虛線空框表示該 Rack 沒有完全同名的 Case；Insights 的 **Cross-Rack title review** 會列出這些缺漏，並為每一筆建議該 Rack 上最相似的 Case（附相似度與 High／Medium／Low 信心），可篩選並下載 CSV 供確認後回 Azure DevOps 統一標題。
 
-Overview 的 Outcome 區下方新增 **Test item × Rack outcome matrix**：每列一個測項（依標題跨 Rack 對應），R1–R5 每格是該 Rack 的 Execute Test Point Outcome（P／F／B／NA／A，點擊開啟 Case；虛線為該 Rack 沒有同名 Case），右側為該測項在各 Rack 的分佈與完成數，底部為各 Rack 合計。可依 Failed／Passed／Active／標題排序，並篩選「有 Failed／Blocked」「各 Rack 皆完成」「各 Rack 結果不同」「有 Rack 缺少」。Matrix 使用該 Phase 全部 Case，不套用時間範圍。Matrix 預設依測項分類分段（可切換為不分組），每段標題列顯示該分類的 Log reviewer、P／F 數與完成度，點標題可收合：BIOS OpMode、Enumeration、FW update、Power cycling、Stress、Virtualization、MPF、Performance、RSCM CLI，其餘歸 Other。Log reviewer：Enumeration／RSCM CLI — Penny、FW update — Paul、Power cycling — Raymond、Stress／Virtualization — Rex、MPF／Performance — Youyu（BIOS OpMode 尚未指定）。分類定義在 `D.TEST_CATEGORIES`（以 41 個標準標題編號指定，實際標題先以相似度對應標準標題，再以關鍵字判斷）。
+Overview 的 Outcome 區下方新增 **Test item × Rack outcome matrix**：每列一個測項（依標題跨 Rack 對應），R1–R5 每格是該 Rack 的 Execute Test Point Outcome（P／F／B／NA／A，點擊開啟 Case；虛線為該 Rack 沒有同名 Case），右側為該測項在各 Rack 的分佈與完成數，底部為各 Rack 合計。Matrix 與 Phase 分頁使用相同的 Rack 與 Case ID；同一 Rack 有多個同標題 Case 時各自一列（標 `same title n/N`），每個 Case 只計一次。可依 Failed／Passed／Active／標題排序，並篩選「有 Failed／Blocked」「各 Rack 皆完成」「各 Rack 結果不同」「有 Rack 缺少」。Matrix 使用該 Phase 全部 Case，不套用時間範圍。Matrix 預設依測項分類分段（可切換為不分組），每段標題列顯示該分類的 Log reviewer、P／F 數與完成度，點標題可收合：BIOS OpMode、Enumeration、FW update、Power cycling、Stress、Virtualization、MPF、Performance、RSCM CLI，其餘歸 Other。Log reviewer：Enumeration／RSCM CLI — Penny、FW update — Paul、Power cycling — Raymond、Stress／Virtualization — Rex、MPF／Performance — Youyu（BIOS OpMode 尚未指定）。分類定義在 `D.TEST_CATEGORIES`（以 41 個標準標題編號指定，實際標題先以相似度對應標準標題，再以關鍵字判斷）。
 
 ## 多專案 Query 選單
 
