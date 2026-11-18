@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.16.7
+// @version      1.16.8
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -422,11 +422,32 @@
         return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, '$expand': 'relations', errorPolicy: 'omit' }) });
       });
+      // Child targets can live in other projects / process templates where the custom metric fields do not exist;
+      // asking for those fields fails the whole batch and used to wipe every Child link. Read base fields only,
+      // then add Severity / Priority for Bugs in a separate, optional request.
+      var childBaseFields = baseFields.concat(['System.TeamProject']);
       var linkedFieldBatches = await D.mapLimit(linkedChunks, 3, function (chunk) {
         return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: fields, errorPolicy: 'omit' }) });
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: childBaseFields, errorPolicy: 'omit' }) });
       });
-      linkedFieldBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) { byId[it.id] = it.fields; }); });
+      var childBugIds = [];
+      linkedFieldBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) {
+        if (!it || !it.fields) return;
+        if (byId[it.id]) Object.keys(it.fields).forEach(function (k) { if (byId[it.id][k] == null) byId[it.id][k] = it.fields[k]; }); else byId[it.id] = it.fields;
+        if (it.fields['System.WorkItemType'] === 'Bug') childBugIds.push(it.id);
+      }); });
+      var childExtraFields = [D.S.metricFields && D.S.metricFields.severity, D.S.metricFields && D.S.metricFields.priority].filter(Boolean);
+      if (childExtraFields.length && childBugIds.length) {
+        try {
+          var childExtraChunks = [];
+          for (var ce = 0; ce < childBugIds.length; ce += 200) childExtraChunks.push(childBugIds.slice(ce, ce + 200));
+          var childExtraBatches = await D.mapLimit(childExtraChunks, 3, function (chunk) {
+            return D.apiFetch(base + '/' + encodeURIComponent(D.CFG.project) + '/_apis/wit/workitemsbatch?api-version=6.0',
+              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: chunk, fields: childExtraFields, errorPolicy: 'omit' }) });
+          });
+          childExtraBatches.forEach(function (batch) { (batch.value || []).forEach(function (it) { if (it && it.fields && byId[it.id]) Object.assign(byId[it.id], it.fields); }); });
+        } catch (childExtraError) { /* Severity / Priority are optional */ }
+      }
       linkedRelationBatches.forEach(function (linkedBatch) { (linkedBatch.value || []).forEach(function (it) { linkedRelationsById[it.id] = it.relations || []; }); });
       var reciprocalChildIdsOf = {}, parentMismatchCount = 0, unavailableChildCount = 0;
       Object.keys(linkedIdsOf).forEach(function (caseId) {
