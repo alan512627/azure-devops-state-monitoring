@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.16.5
+// @version      1.16.6
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2659,6 +2659,25 @@
     });
     return index;
   };
+  // Like crossRackIndex, but keeps every Case: when a Rack has several Cases with the same title, extra rows are added
+  // (paired by Case ID order) so every Case shown on the Phase tab appears exactly once.
+  D.crossRackRows = function (racks) {
+    var groups = {}, order = [];
+    (racks || []).forEach(function (rack, i) {
+      D.collect(rack, 'Test Case').forEach(function (testCase) {
+        var key = D.normalizedTitle(testCase.title) || ('#' + testCase.id);
+        if (!groups[key]) { groups[key] = racks.map(function () { return []; }); order.push(key); }
+        groups[key][i].push(testCase);
+      });
+    });
+    var rows = [];
+    order.forEach(function (key) {
+      var per = groups[key].map(function (list) { return list.slice().sort(function (a, b) { return +a.id - +b.id; }); });
+      var n = Math.max.apply(null, per.map(function (l) { return l.length; }));
+      for (var j = 0; j < n; j++) rows.push({ key: j ? key + '#' + (j + 1) : key, dup: n > 1 ? j + 1 : 0, dupOf: n, cases: per.map(function (l) { return l[j] || null; }) });
+    });
+    return rows;
+  };
   // mode 'state' colours each Rack chip by that Case's Work Item State; otherwise by its Test Point outcome.
   D.crossRackOutcomeChips = function (testCase, racks, index, ready, mode) {
     var wrap = D.el('span', 'xrack'), row = index[D.normalizedTitle(testCase.title)] || [], byState = mode === 'state';
@@ -3125,10 +3144,10 @@
       .sort(function (a, b) { return String(a.bug.created || '').localeCompare(String(b.bug.created || '')) || (+a.bug.id - +b.bug.id); });
   };
   D.inTestReport = function (racks) {
-    var range = D.testWindowRange(), index = D.crossRackIndex(racks), bugList = D.S.bugList && D.S.bugList.status === 'ok' ? D.S.bugList.items : null;
+    var range = D.testWindowRange(), xrows = D.crossRackRows(racks), bugList = D.S.bugList && D.S.bugList.status === 'ok' ? D.S.bugList.items : null;
     var listIds = {}; (bugList || []).forEach(function (b) { listIds[b.id] = b; });
-    var allLinked = {}, rows = Object.keys(index).map(function (key) {
-      var itemBugs = {}, cells = index[key].map(function (testCase, rackIndex) {
+    var allLinked = {}, rows = xrows.map(function (xr) {
+      var key = xr.key, itemBugs = {}, cells = xr.cases.map(function (testCase, rackIndex) {
         if (!testCase) return null;
         var o = D.caseOutcome(testCase), outcome = D.resultOutcomeKey(o && o.outcome), links = D.caseAllBugLinks(testCase);
         var inTest = links.filter(function (l) { return D.inTestWindow(l.bug.created, range); }), older = links.length - inTest.length;
@@ -3142,7 +3161,7 @@
         return { testCase: testCase, outcome: outcome, inTest: inTest, older: older, gap: outcome === 'Failed' && !inTest.length };
       });
       var first = cells.filter(Boolean)[0];
-      return { key: key, title: first ? first.testCase.title : key, category: D.caseCategory ? D.caseCategory(first ? first.testCase.title : key) : '', cells: cells,
+      return { key: key, dup: xr.dup, dupOf: xr.dupOf, title: (first ? first.testCase.title : key) + (xr.dup ? ' (same title ' + xr.dup + '/' + xr.dupOf + ')' : ''), category: D.caseCategory ? D.caseCategory(first ? first.testCase.title : key) : '', cells: cells,
         bugs: Object.keys(itemBugs).map(function (id) { return itemBugs[id]; }),
         failed: cells.filter(function (c) { return c && c.outcome === 'Failed'; }).length, gaps: cells.filter(function (c) { return c && c.gap; }).length };
     });
@@ -3334,6 +3353,8 @@
     head.appendChild(D.el('h2', null, D.phaseLabel(phase) + ' Bug Links')); wrap.appendChild(head);
     if (!D.S.testResults || D.S.testResults.status !== 'ok') { wrap.appendChild(D.el('div', 'empty', 'Waiting for Test Point outcomes …')); return wrap; }
     var chk = D.bugLinkCheck(racks), rep = chk.report;
+    var phaseCaseCount = racks.reduce(function (n, r) { return n + D.collect(r, 'Test Case').length; }, 0), coveredCount = rep.rows.reduce(function (n, r) { return n + r.cells.filter(Boolean).length; }, 0);
+    wrap.appendChild(D.el('div', 'small fb-note' + (coveredCount === phaseCaseCount ? '' : ' conv-bad'), 'Cases checked: ' + coveredCount + ' / ' + phaseCaseCount + ' on the ' + D.phaseLabel(phase) + ' tab (same Rack → Case IDs; Cases sharing a title on one Rack get their own row, marked "same title n/N")'));
     function rl(i) { return 'R' + (D.rackNumber(racks[i]) || i + 1); }
     wrap.appendChild(D.el('div', 'small fb-note', 'Only Bugs created ' + rep.range.label + ' (Taipei) · Recomputed from the current links and outcomes on every load · Judged per test item (the same Bug on different test items is checked separately) · Common Bug (same test item, linked on 2+ Racks): Child on Rack 1, or — when the Bug is not linked on Rack 1 — Child on the lowest-numbered Rack that has it; Related on the other Racks · Rack-only Bug: Child on that Rack · Failed without a Bug is marked red · Blocked does not need a Bug · Child = any Child link.'));
     var cards = D.el('div', 'cards fb-cards');
