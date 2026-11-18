@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.16.9
+// @version      1.17.0
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -3332,58 +3332,74 @@
     + "\n.itb-unique a{margin-right:4px}.itb-cmp{margin-top:12px}.itb-bybug{margin-top:14px}.itb-bybug h4{margin:0 0 4px;font-size:12px;color:#cbd5e1}.itb-bybug .itb-table{margin-top:6px}.itb-cmp-box{border:1px solid #1e2b45;border-radius:8px;padding:8px 10px;background:#0f1a2e}.itb-cmp-box h4{margin:0 0 6px;font-size:12px;color:#cbd5e1}";
   // Bug link check (per Phase tab). Reads the links the team has already placed; nothing is written to Azure DevOps.
   // Rules (recomputed on every load from the current links and outcomes; only Bugs created in the test window):
-  //  - Judged per test item (Bug × test item): a Bug on different test items is checked separately.
-  //  - A Bug linked on 2+ Racks of the same test item is a common Bug. Child goes on Rack 1 when the Bug is linked there; otherwise on the lowest-numbered
-  //    Rack where the Bug is linked (whatever the Rack 1 outcome). Every other Rack: Related.
-  //  - A Bug linked on one Rack only: Child on that Rack.
+  //  - Azure DevOps allows one Parent per Bug, so each Bug has exactly one Child link: its "home" Case. Every other
+  //    Case (any Rack, any test item) must link the Bug as Related.
+  //  - The home Case must be on Rack 1 when the Bug appears on Rack 1 (any test item); otherwise on the lowest-numbered
+  //    Rack where the Bug appears.
+  //  - No Child in this Phase: OK if the Bug's Parent is a Case outside this Phase (from the Bug List relations);
+  //    otherwise "no Child" and the first Case on the expected Rack (test-item order) is suggested.
   //  - A Failed Case with no Bug from the window is "missing bug". Blocked is not required to have a Bug.
   D.bugLinkCheck = function (racks) {
-    var report = D.inTestReport(racks), rowByKey = {};
-    report.rows.forEach(function (row) { rowByKey[row.key] = row; });
+    var report = D.inTestReport(racks);
     function rl(i) { return 'R' + (D.rackNumber(racks[i]) || i + 1); }
-    var common = [], single = [], issues = [], expectedOf = {}, perRack = racks.map(function (rack) {
-      return { rack: rack, failed: 0, missing: 0, commonChild: 0, singleChild: 0, related: 0, issues: 0 };
-    });
-    // Judged per test item: the same Bug on different test items is evaluated separately.
-    var pairs = [];
+    var catOrder = D.categoryNames ? D.categoryNames() : [];
+    var rowOrder = report.rows.slice().sort(function (a, b) {
+      return (catOrder.indexOf(a.category || '') - catOrder.indexOf(b.category || '')) || String(a.title).localeCompare(String(b.title));
+    }).map(function (r) { return r.key; });
+    var phaseCaseIds = {}; report.rows.forEach(function (r) { r.cells.forEach(function (c) { if (c) phaseCaseIds[c.testCase.id] = 1; }); });
+    var parentOf = {}, caseIndex = D.caseIndexAll ? D.caseIndexAll() : {};
+    ((D.S.bugList && D.S.bugList.items) || []).forEach(function (b) { if (b.relCases) parentOf[b.id] = b.relCases.parent.map(function (p) { return p.id; }); });
+    var byBug = {}, order = [];
     report.rows.forEach(function (row) {
-      var map = {};
       row.cells.forEach(function (c, i) { if (!c) return; c.inTest.forEach(function (l) {
-        var e = map[l.bug.id] = map[l.bug.id] || { bug: l.bug, key: row.key, title: row.title, racks: {}, items: {} };
-        e.items[row.key] = 1; e.racks[i] = (e.racks[i] || []).concat([{ testCase: c.testCase, outcome: c.outcome, link: l.link }]);
+        var e = byBug[l.bug.id]; if (!e) { e = byBug[l.bug.id] = { bug: l.bug, hits: [], racks: {}, items: {} }; order.push(l.bug.id); }
+        var h = { key: row.key, title: row.title, i: i, testCase: c.testCase, outcome: c.outcome, link: l.link };
+        e.hits.push(h); e.items[row.key] = 1; (e.racks[i] = e.racks[i] || []).push(h);
       }); });
-      Object.keys(map).forEach(function (id) { pairs.push(map[id]); });
     });
-    pairs.forEach(function (e) {
-      var idx = Object.keys(e.racks).map(Number).sort(function (a, b) { return a - b; });
-      var has = function (i, kind) { return (e.racks[i] || []).some(function (h) { return kind === 'child' ? h.link !== 'related' : h.link !== 'child'; }); };
-      var entry = { e: e, idx: idx, problems: [], status: 'ok', anchor: null, expected: '' };
-      if (idx.length >= 2) {
-        // Child on Rack 1 when the Bug is linked there; otherwise on the lowest-numbered Rack that has it. Related elsewhere.
-        entry.anchor = idx[0];
-        if (entry.anchor !== null) {
-          entry.expected = 'Child on ' + rl(entry.anchor) + (entry.anchor ? ' (not on R1 — lowest Rack)' : '') + ', Related on ' + idx.filter(function (i) { return i !== entry.anchor; }).map(rl).join(' / ');
-          if (!has(entry.anchor, 'child')) entry.problems.push('No Child on ' + rl(entry.anchor));
-          idx.forEach(function (i) {
-            expectedOf[e.bug.id + '|' + e.key + '|' + i] = i === entry.anchor ? 'child' : 'related';
-            if (i !== entry.anchor && has(i, 'child')) entry.problems.push(rl(i) + ' is Child — should be Related');
-          });
+    var all = [], common = [], single = [], issues = [], r1Common = [], expectedOf = {}, tipOf = {};
+    var perRack = racks.map(function (rack) { return { rack: rack, failed: 0, missing: 0, home: 0, related: 0, issues: 0 }; });
+    order.forEach(function (id) {
+      var e = byBug[id];
+      e.hits.sort(function (a, b) { return a.i - b.i || rowOrder.indexOf(a.key) - rowOrder.indexOf(b.key); });
+      var idx = Object.keys(e.racks).map(Number).sort(function (a, b) { return a - b; }), anchor = idx[0];
+      var homes = e.hits.filter(function (h) { return h.link !== 'related'; }), home = homes[0] || null;
+      var entry = { e: e, idx: idx, anchor: anchor, home: home, problems: [], status: 'ok', expected: '', suggest: null, elsewhere: null };
+      var k = function (h) { return id + '|' + h.key + '|' + h.i; };
+      e.hits.forEach(function (h) { expectedOf[k(h)] = 'related'; tipOf[k(h)] = home ? 'Related — Child (Parent) is ' + rl(home.i) + ' · ' + home.title + ' #' + home.testCase.id : 'Related'; });
+      if (home) {
+        expectedOf[k(home)] = 'child'; tipOf[k(home)] = 'Child (Parent Case of this Bug)';
+        entry.expected = 'Child on ' + rl(anchor) + (anchor ? ' (not on R1 — lowest Rack)' : '') + ' · Related everywhere else';
+        if (home.i !== anchor) {
+          expectedOf[k(home)] = 'related';
+          tipOf[k(home)] = 'Child is on ' + rl(home.i) + ' but this Bug is also on ' + rl(anchor) + ' — move the Child to ' + rl(anchor) + ' and make this Related';
+          entry.problems.push('Child on ' + rl(home.i) + ' — should be on ' + rl(anchor));
+          entry.suggest = e.hits.filter(function (h) { return h.i === anchor; })[0];
         }
-        common.push(entry);
+        if (homes.length > 1) entry.problems.push(homes.length + ' Child links found');
       } else {
-        entry.anchor = idx[0]; entry.expected = 'Child on ' + rl(idx[0]); expectedOf[e.bug.id + '|' + e.key + '|' + idx[0]] = 'child';
-        if (!has(idx[0], 'child')) entry.problems.push('Only Related on ' + rl(idx[0]) + ' — should be Child');
-        single.push(entry);
+        var parents = parentOf[id] || [], outside = parents.filter(function (p) { return !phaseCaseIds[p]; });
+        if (outside.length) {
+          var ci = caseIndex[outside[0]];
+          entry.elsewhere = ci ? ci.phase + ' · ' + ci.rack + ' · #' + outside[0] : '#' + outside[0] + ' (not in this Query)';
+          entry.expected = 'Related here · Child is ' + entry.elsewhere;
+          e.hits.forEach(function (h) { tipOf[k(h)] = 'Related — Child (Parent) is ' + entry.elsewhere; });
+        } else {
+          entry.suggest = e.hits.filter(function (h) { return h.i === anchor; })[0];
+          entry.expected = 'Child on ' + rl(anchor) + ' · ' + entry.suggest.title + ' #' + entry.suggest.testCase.id + ' (suggested) · Related everywhere else';
+          entry.problems.push('No Child (Parent) Case');
+        }
       }
+      if (entry.suggest) { expectedOf[k(entry.suggest)] = 'child'; tipOf[k(entry.suggest)] = 'Suggested Child (Parent) Case for this Bug: ' + rl(entry.suggest.i) + (anchor ? ' is the lowest Rack with this Bug' : ' — Rack 1 has this Bug') + '; Related everywhere else'; }
       if (entry.problems.length) { entry.status = 'issue'; issues.push(entry); idx.forEach(function (i) { perRack[i].issues++; }); }
-      idx.forEach(function (i) {
-        if (has(i, 'child')) { if (idx.length >= 2) perRack[i].commonChild++; else perRack[i].singleChild++; }
-        if (has(i, 'related')) perRack[i].related++;
-      });
+      e.hits.forEach(function (h) { if (h.link !== 'related') perRack[h.i].home++; if (h.link !== 'child') perRack[h.i].related++; });
+      all.push(entry);
+      (e.hits.length >= 2 ? common : single).push(entry);
+      if (e.racks[0] && e.hits.length >= 2) r1Common.push(entry);
     });
     report.rows.forEach(function (row) { row.cells.forEach(function (c, i) { if (c && c.outcome === 'Failed') { perRack[i].failed++; if (!c.inTest.length) perRack[i].missing++; } }); });
-    return { report: report, common: common, single: single, issues: issues, perRack: perRack, expectedOf: expectedOf,
-      commonOk: common.filter(function (x) { return x.status === 'ok'; }).length, missing: report.gapCells };
+    return { report: report, all: all, common: common, single: single, issues: issues, r1Common: r1Common, perRack: perRack, expectedOf: expectedOf, tipOf: tipOf,
+      commonOk: common.filter(function (x) { return x.status === 'ok'; }).length, noChild: all.filter(function (x) { return !x.home && !x.elsewhere; }).length, missing: report.gapCells };
   };
   D.bugLinkCheckView = function (phase) {
     var racks = D.phaseRacks(phase), wrap = D.el('div', 'extra-view'), head = D.el('div', 'extra-head');
@@ -3399,34 +3415,66 @@
     var phaseCaseCount = racks.reduce(function (n, r) { return n + D.collect(r, 'Test Case').length; }, 0), coveredCount = rep.rows.reduce(function (n, r) { return n + r.cells.filter(Boolean).length; }, 0);
     wrap.appendChild(D.el('div', 'small fb-note' + (coveredCount === phaseCaseCount ? '' : ' conv-bad'), 'Cases checked: ' + coveredCount + ' / ' + phaseCaseCount + ' on the ' + D.phaseLabel(phase) + ' tab (same Rack → Case IDs; Cases sharing a title on one Rack get their own row, marked "same title n/N")'));
     function rl(i) { return 'R' + (D.rackNumber(racks[i]) || i + 1); }
-    wrap.appendChild(D.el('div', 'small fb-note', 'Only Bugs created ' + rep.range.label + ' (Taipei) · Recomputed from the current links and outcomes on every load · Judged per test item (the same Bug on different test items is checked separately) · Common Bug (same test item, linked on 2+ Racks): Child on Rack 1, or — when the Bug is not linked on Rack 1 — Child on the lowest-numbered Rack that has it; Related on the other Racks · Rack-only Bug: Child on that Rack · Failed without a Bug is marked red · Blocked does not need a Bug · Child = any Child link.'));
+    wrap.appendChild(D.el('div', 'small fb-note', 'Only Bugs created ' + rep.range.label + ' (Taipei) · Recomputed from the current links and outcomes on every load · One Parent per Bug: each Bug is Child on exactly one Case (C★) and Related on every other Case · That Child Case is on Rack 1 when the Bug appears on Rack 1, otherwise on the lowest-numbered Rack with the Bug · Orange = suggested Child when the Bug has none · Failed without a Bug is marked red · Blocked does not need a Bug.'));
     var cards = D.el('div', 'cards fb-cards');
-    [['COMMON (2+ RACKS, SAME ITEM)', chk.common.length, '#a78bfa'], ['COMMON · LINKED CORRECTLY', chk.commonOk, '#34d399'], ['RACK-ONLY (SAME ITEM)', chk.single.length, '#60a5fa'],
-      ['FAILED WITHOUT BUG', chk.missing, '#f87171'], ['LINK TYPE ISSUES', chk.issues.length, '#fb923c'],
-      ['NOT IN BUG LIST', rep.bugListReady ? rep.notInList.length : '…', '#fde68a']].forEach(function (c) { cards.appendChild(D.card(c[0], c[1], c[2])); });
+    [['BUGS IN THIS PHASE', chk.all.length, '#a78bfa'], ['R1 COMMON BUGS', chk.r1Common.length, '#38bdf8'], ['COMMON (2+ CASES)', chk.common.length, '#818cf8'],
+      ['LINKED CORRECTLY', chk.all.length - chk.issues.length, '#34d399'], ['NO CHILD (PARENT)', chk.noChild, '#fb923c'], ['LINK ISSUES', chk.issues.length, '#fb923c'],
+      ['FAILED WITHOUT BUG', chk.missing, '#f87171'], ['NOT IN BUG LIST', rep.bugListReady ? rep.notInList.length : '…', '#fde68a']].forEach(function (c) { cards.appendChild(D.card(c[0], c[1], c[2])); });
     wrap.appendChild(cards);
     // Per Rack
     var pr = D.box('Per Rack'), ps = D.el('div', 'table-scroll'), pt = D.el('table', 'fb-sum'), ph = D.el('tr'), pth = D.el('thead');
-    ['Rack', 'Failed', 'Failed without bug', 'Child · common', 'Child · rack-only', 'Related', 'Bugs with link issues'].forEach(function (h, i) { ph.appendChild(D.el('th', i ? 'num' : null, h)); });
+    ['Rack', 'Failed', 'Failed without bug', 'Child (Parent)', 'Related', 'Bugs with link issues'].forEach(function (h, i) { ph.appendChild(D.el('th', i ? 'num' : null, h)); });
     pth.appendChild(ph); pt.appendChild(pth); var pb = D.el('tbody');
     chk.perRack.forEach(function (r) {
       var tr = D.el('tr'); tr.appendChild(D.el('td', null, r.rack.label));
-      [r.failed, r.missing, r.commonChild, r.singleChild, r.related, r.issues].forEach(function (v, k) { tr.appendChild(D.el('td', 'num' + ((k === 1 || k === 5) && v ? ' conv-bad' : ''), String(v))); });
+      [r.failed, r.missing, r.home, r.related, r.issues].forEach(function (v, k) { tr.appendChild(D.el('td', 'num' + ((k === 1 || k === 4) && v ? ' conv-bad' : ''), String(v))); });
       pb.appendChild(tr);
     });
     pt.appendChild(pb); ps.appendChild(pt); pr.appendChild(ps); wrap.appendChild(pr);
+    function homeLabel(x) {
+      if (x.home) return rl(x.home.i) + ' · ' + x.home.title + ' #' + x.home.testCase.id;
+      if (x.elsewhere) return x.elsewhere;
+      return 'None' + (x.suggest ? ' — suggest ' + rl(x.suggest.i) + ' · ' + x.suggest.title + ' #' + x.suggest.testCase.id : '');
+    }
+    function focusBug(id) { D.S.linkCheckBug = D.S.linkCheckBug === id ? null : id; D.renderExtraView(); }
+    // Rack 1 common Bugs
+    var rb = D.box('Rack 1 common Bugs — on Rack 1 and on 2+ Cases (' + chk.r1Common.length + ')');
+    rb.appendChild(D.el('div', 'small', 'Click a Bug to show only its test items in the table below.'));
+    if (!chk.r1Common.length) rb.appendChild(D.el('div', 'small', 'None'));
+    else {
+      var rs = D.el('div', 'table-scroll'), rt = D.el('table', 'fb-table'), rh = D.el('tr'), rth = D.el('thead');
+      ['Bug', 'State', 'Child (Parent) Case', 'R1 test items'].concat(racks.map(function (r, i) { return rl(i) + ' Cases'; })).concat(['Check']).forEach(function (h, k) { rh.appendChild(D.el('th', k >= 3 && k < 4 + racks.length ? 'num' : null, h)); });
+      rth.appendChild(rh); rt.appendChild(rth); var rbody = D.el('tbody');
+      chk.r1Common.slice().sort(function (a, b) { return Object.keys(b.e.items).length - Object.keys(a.e.items).length || b.e.hits.length - a.e.hits.length || (+a.e.bug.id - +b.e.bug.id); }).forEach(function (x) {
+        var tr = D.el('tr', 'lc-r1row' + (D.S.linkCheckBug === x.e.bug.id ? ' lc-focus-row' : '')), bc = D.el('td', 'fb-bug'), fb = D.el('button', 'lc-focus-btn', '#' + x.e.bug.id);
+        fb.type = 'button'; fb.title = 'Show only this Bug in the table'; fb.addEventListener('click', function () { focusBug(x.e.bug.id); });
+        bc.appendChild(fb); bc.appendChild(document.createTextNode(' ' + (x.e.bug.title || ''))); tr.appendChild(bc);
+        var sc = D.el('td'), st = D.el('span', 'chip', x.e.bug.state || '?'); st.style.background = D.bugStateColor ? D.bugStateColor(x.e.bug.state || 'Unknown') : D.colorFor(x.e.bug.state); sc.appendChild(st); tr.appendChild(sc);
+        tr.appendChild(D.el('td', x.home || x.elsewhere ? null : 'conv-issue', homeLabel(x)));
+        tr.appendChild(D.el('td', 'num', String((x.e.racks[0] || []).length)));
+        racks.forEach(function (r, i) { tr.appendChild(D.el('td', 'num', String((x.e.racks[i] || []).length || '–'))); });
+        tr.appendChild(D.el('td', x.status === 'issue' ? 'conv-issue' : 'conv-ok', x.problems.length ? x.problems.join('; ') : 'OK'));
+        rbody.appendChild(tr);
+      });
+      rt.appendChild(rbody); rs.appendChild(rt); rb.appendChild(rs);
+    }
+    wrap.appendChild(rb);
     // Test item × Rack
     var listIds = {}; ((D.S.bugList && D.S.bugList.items) || []).forEach(function (b) { listIds[b.id] = 1; });
     var mb = D.box('Test item × Rack — red = Failed without a Bug'), filterSel = D.el('select'), filter = D.S.linkCheckFilter || 'all', bar = D.el('div', 'bug-toolbar');
     [['all', 'All test items'], ['missing', 'Has Failed without bug'], ['issue', 'Has link type issue']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; filterSel.appendChild(opt); });
-    filterSel.value = filter; bar.appendChild(filterSel); mb.appendChild(bar);
-    var issueIds = {}; chk.issues.forEach(function (x) { issueIds[x.e.bug.id + '|' + x.e.key] = 1; });
+    filterSel.value = filter; bar.appendChild(filterSel);
+    var focus = D.S.linkCheckBug || null;
+    if (focus) { var fc = D.el('button', 'lc-focus-btn on', 'Showing Bug #' + focus + ' ✕'); fc.type = 'button'; fc.addEventListener('click', function () { focusBug(focus); }); bar.appendChild(fc); }
+    mb.appendChild(bar);
+    var issueIds = {}; chk.issues.forEach(function (x) { issueIds[x.e.bug.id] = 1; });
     var ms = D.el('div', 'table-scroll'), mt = D.el('table', 'itb-table'), mh = D.el('tr'), mth = D.el('thead');
     mh.appendChild(D.el('th', null, 'Test item')); racks.forEach(function (r, i) { mh.appendChild(D.el('th', null, rl(i))); });
     mth.appendChild(mh); mt.appendChild(mth); var mbody = D.el('tbody'); mt.appendChild(mbody); ms.appendChild(mt); mb.appendChild(ms); wrap.appendChild(mb);
     function keep(row) {
+      if (focus && !row.bugs.some(function (b) { return String(b.id) === String(focus); })) return false;
       if (filter === 'missing') return row.gaps > 0;
-      if (filter === 'issue') return row.bugs.some(function (b) { return issueIds[b.id + '|' + row.key]; });
+      if (filter === 'issue') return row.bugs.some(function (b) { return issueIds[b.id]; });
       return true;
     }
     (D.categoryNames ? D.categoryNames() : ['']).forEach(function (name) {
@@ -3443,9 +3491,11 @@
           var oc = D.el('span', 'omatrix-cell', D.OUTCOME_ABBR[c.outcome] || '?'); oc.style.background = D.outcomeColor(c.outcome); oc.title = racks[i].label + ' · #' + c.testCase.id + ' · ' + c.outcome; td.appendChild(oc);
           c.inTest.forEach(function (l) {
             var span = D.el('span', 'itb-bug' + (rep.bugListReady && !listIds[l.bug.id] ? ' not-in-list' : '')); span.appendChild(D.bugAnchor(l.bug));
-            var exp = chk.expectedOf[l.bug.id + '|' + row.key + '|' + i], ok = !exp || l.link === 'both' || l.link === exp;
-            var tag = D.el('span', 'itb-kind fb-' + l.link + (ok ? '' : ' conv-wrong'), l.link === 'both' ? 'C+R' : l.link === 'child' ? 'C' : 'R');
-            tag.title = ok ? 'Link type matches the rule' : 'Should be ' + (exp === 'child' ? 'Child' : 'Related') + ' on ' + rl(i);
+            var lk = l.bug.id + '|' + row.key + '|' + i, exp = chk.expectedOf[lk], ok = !exp || (exp === 'child' ? l.link !== 'related' : l.link !== 'child');
+            var suggest = !ok && exp === 'child', isHome = ok && exp === 'child';
+            if (focus && String(l.bug.id) === String(focus)) span.className += ' lc-focus';
+            var tag = D.el('span', 'itb-kind fb-' + l.link + (ok ? '' : suggest ? ' lc-suggest' : ' conv-wrong'), (l.link === 'both' ? 'C+R' : l.link === 'child' ? 'C' : 'R') + (isHome ? '★' : ''));
+            tag.title = (ok ? '' : suggest ? 'Should be Child — ' : 'Should be Related — ') + (chk.tipOf[lk] || '');
             span.appendChild(tag); td.appendChild(span);
           });
           if (c.gap) { td.title = 'Failed, but no Bug created ' + rep.range.label + ' is linked to this Case (Child or Related)' + (c.older ? ' — ' + c.older + ' older Bug link(s) outside the window' : ''); }
@@ -3462,8 +3512,9 @@
       Object.keys(e.racks).map(Number).sort(function (a, b) { return a - b; }).forEach(function (i) {
         e.racks[i].forEach(function (h) {
           var s = D.el('span', 'xreview-rack'); s.appendChild(document.createTextNode(rl(i) + ' ')); s.appendChild(D.caseAnchor(h.testCase));
-          var exp = chk.expectedOf[e.bug.id + '|' + e.key + '|' + i], ok = !exp || h.link === 'both' || h.link === exp;
-          s.appendChild(D.el('span', 'itb-kind fb-' + h.link + (ok ? '' : ' conv-wrong'), h.link === 'both' ? 'C+R' : h.link === 'child' ? 'C' : 'R')); td.appendChild(s);
+          var hk = e.bug.id + '|' + h.key + '|' + i, exp = chk.expectedOf[hk], ok = !exp || (exp === 'child' ? h.link !== 'related' : h.link !== 'child');
+          var tg = D.el('span', 'itb-kind fb-' + h.link + (ok ? '' : exp === 'child' ? ' lc-suggest' : ' conv-wrong'), (h.link === 'both' ? 'C+R' : h.link === 'child' ? 'C' : 'R') + (ok && exp === 'child' ? '★' : ''));
+          tg.title = h.title + ' — ' + (chk.tipOf[hk] || ''); s.appendChild(tg); td.appendChild(s);
         });
       });
       return td;
@@ -3472,14 +3523,14 @@
       var box = D.box(title + ' (' + entries.length + ')'); if (note) box.appendChild(D.el('div', 'small', note));
       if (!entries.length) { box.appendChild(D.el('div', 'small', 'None')); return box; }
       var s = D.el('div', 'table-scroll'), t = D.el('table', 'fb-table'), h = D.el('tr'), th = D.el('thead');
-      ['Bug', 'State', 'Created', 'In Bug List', 'Test item', 'Linked on (Rack · Case · link)'].concat(cols.map(function (c) { return c[0]; })).forEach(function (x) { h.appendChild(D.el('th', null, x)); });
+      ['Bug', 'State', 'Created', 'In Bug List', 'Child (Parent) Case', 'Linked on (Rack · Case · link)'].concat(cols.map(function (c) { return c[0]; })).forEach(function (x) { h.appendChild(D.el('th', null, x)); });
       th.appendChild(h); t.appendChild(th); var b = D.el('tbody');
       entries.forEach(function (x) {
         var e = x.e || x, tr = D.el('tr'), bc = D.el('td', 'fb-bug'); bc.appendChild(D.bugAnchor(e.bug)); bc.appendChild(document.createTextNode(' ' + (e.bug.title || ''))); tr.appendChild(bc);
         var sc = D.el('td'), st = D.el('span', 'chip', e.bug.state || '?'); st.style.background = D.bugStateColor ? D.bugStateColor(e.bug.state || 'Unknown') : D.colorFor(e.bug.state); sc.appendChild(st); tr.appendChild(sc);
         tr.appendChild(D.el('td', null, String(e.bug.created || '').slice(0, 10)));
         tr.appendChild(D.el('td', rep.bugListReady && !listIds[e.bug.id] ? 'conv-bad' : null, rep.bugListReady ? (listIds[e.bug.id] ? 'Yes' : 'No') : '…'));
-        tr.appendChild(D.el('td', 'itb-title', e.title || '')); tr.appendChild(rackSummary(e));
+        tr.appendChild(D.el('td', 'itb-title' + (x.e && !x.home && !x.elsewhere ? ' conv-issue' : ''), x.e ? homeLabel(x) : '')); tr.appendChild(rackSummary(e));
         cols.forEach(function (c) { tr.appendChild(c[1](x)); });
         b.appendChild(tr);
       });
@@ -3490,13 +3541,14 @@
     var grid = D.el('div');
     grid.appendChild(bugBox('Link type issues', chk.issues, [expectedCol, ['Problem', function (x) { return D.el('td', 'conv-issue', x.problems.join('; ')); }]], 'Red tags are links that do not match the rule.'));
     wrap.appendChild(grid);
-    wrap.appendChild(bugBox('Not in the Bug List', rep.notInList.map(function (x) { return { e: x }; }), [], rep.bugListReady ? 'Bugs created in the window and linked to Cases but missing from the Bug List query (e.g. moved by the customer).' : 'Bug List is still loading …'));
-    wrap.appendChild(bugBox('Common Bugs — same test item on 2+ Racks', chk.common.slice().sort(function (a, b) { return b.idx.length - a.idx.length || (+a.e.bug.id - +b.e.bug.id); }), [expectedCol, checkCol]));
-    wrap.appendChild(bugBox('Rack-only Bugs — test item on one Rack', chk.single.slice().sort(function (a, b) { return a.anchor - b.anchor || (+a.e.bug.id - +b.e.bug.id); }), [expectedCol, checkCol]));
+    wrap.appendChild(bugBox('Not in the Bug List', rep.notInList.map(function (x) { return chk.all.filter(function (y) { return y.e.bug.id === x.bug.id; })[0]; }).filter(Boolean), [], rep.bugListReady ? 'Bugs created in the window and linked to Cases but missing from the Bug List query (e.g. moved by the customer).' : 'Bug List is still loading …'));
+    wrap.appendChild(bugBox('Common Bugs — on 2+ Cases', chk.common.slice().sort(function (a, b) { return b.e.hits.length - a.e.hits.length || (+a.e.bug.id - +b.e.bug.id); }), [expectedCol, checkCol]));
+    wrap.appendChild(bugBox('Single-Case Bugs', chk.single.slice().sort(function (a, b) { return a.anchor - b.anchor || (+a.e.bug.id - +b.e.bug.id); }), [expectedCol, checkCol]));
     return wrap;
   };
   D.CSS += "\n.lc-missing{background:rgba(248,113,113,.16)!important;box-shadow:inset 0 0 0 1px #f87171;cursor:help}.lc-tip{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;border:1px solid #f87171;color:#fecaca;font-size:10px;font-weight:700}"
     + "\n.conv-bad{color:#fb923c!important;font-weight:800}.conv-issue{color:#fb923c;font-weight:700}.conv-ok{color:#34d399;font-weight:700}.itb-kind.conv-wrong{outline:2px solid #f87171;outline-offset:1px}"
+    + "\n.itb-kind.lc-suggest{outline:2px dashed #fb923c;outline-offset:1px}.itb-bug.lc-focus{background:rgba(56,189,248,.18);border-radius:4px}.lc-focus-btn{background:#0f1a2e;border:1px solid #38bdf8;color:#7dd3fc;border-radius:6px;padding:1px 8px;font:inherit;font-weight:700;cursor:pointer}.lc-focus-btn.on{margin-left:8px;background:#0c4a6e;color:#e0f2fe}.lc-focus-row td{background:rgba(56,189,248,.08)}"
     + "\n.phase-tab[data-view='links:phase1']{--phase-accent:#38bdf8}.phase-tab[data-view='links:phase2']{--phase-accent:#c084fc}";
   D.buildPanels = function () {
     D.updateIdentity();

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const assert = require('assert');
 const source = fs.readFileSync('C4143-DVScale-Dashboard.user.js', 'utf8');
-const D = { S: { bugList: { status: 'ok', items: [{ id: 1 }, { id: 2 }, { id: 3 }] } }, queryExtras: () => null };
+const D = { S: { bugList: { status: 'ok', items: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 6, relCases: { parent: [{ id: 99999 }], other: [] } }] } }, queryExtras: () => null };
 const grab = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 eval(grab('  D.normalizedTitle = ', '\n'));
 eval(grab('  D.collect = ', '\n'));
@@ -12,26 +12,24 @@ eval(grab('  D.bugLinkCheck = ', '  D.bugLinkCheckView = '));
 D.rackNumber = r => +r.label.slice(-1);
 const bug = id => ({ id, title: 'Bug ' + id, created: '2026-10-20T00:00:00Z' });
 const tc = (r, item, outcome, child = [], related = []) => ({ id: r * 100 + item, type: 'Test Case', title: 'Item ' + item, latestTestPoint: { outcome }, childBugsRaw: child.map(bug), bugs: [], relatedBugs: related.map(bug) });
-// item0: common bug 1 — R1 Child, R2 Related, R3 Child (wrong)
-// item1: R1 Passed; common bug 2 — R2 Child, R3 Related (OK); R4 Failed without bug
-// item2: R1 Failed with rack-only bug 9; bug 3 on R3 (Related) + R4 (Child), not on R1 -> Child on R3 (lowest), Related on R4: both wrong
-// item3: rack-only bug 4 only Related on R2 -> issue
-// bug 5: Child on item0 R2 and item3 R5 -> two separate rack-only entries, both OK (judged per test item)
+// bug 1: Child on R1 item0, Related on R2 item0 and R1 item1 -> OK (one Parent, on R1)
+// bug 2: Child on R3 item1 but also on R2 item1 (Related) -> Child should be on R2 (lowest Rack)
+// bug 3: Related only (R2 item2, R4 item2), no Parent anywhere -> no Child, suggest R2 item2
+// bug 4: single Case, Child on R5 item3 -> OK
+// bug 6: Related on R2 item3, Parent is Case 99999 outside this Phase -> OK
 const plan = [
-  [['Failed', [1]], ['Failed', [5], [1]], ['Failed', [1]], ['Passed'], ['Blocked']],
-  [['Passed'], ['Failed', [2]], ['Failed', [], [2]], ['Failed'], ['Unspecified']],
-  [['Failed', [9]], ['Unspecified'], ['Failed', [], [3]], ['Failed', [3]], ['Passed']],
-  [['Unspecified'], ['Failed', [], [4]], ['Unspecified'], ['Unspecified'], ['Failed', [5]]]
+  [['Failed', [1]], ['Failed', [], [1]], ['Passed'], ['Passed'], ['Blocked']],
+  [['Failed', [], [1]], ['Failed', [], [2]], ['Failed', [2]], ['Failed'], ['Unspecified']],
+  [['Passed'], ['Failed', [], [3]], ['Passed'], ['Failed', [], [3]], ['Passed']],
+  [['Unspecified'], ['Failed', [], [6]], ['Unspecified'], ['Unspecified'], ['Failed', [4]]]
 ];
 const racks = [0, 1, 2, 3, 4].map(r => ({ type: 'Feature', label: 'Rack ' + (r + 1), children: plan.map((item, i) => tc(r + 1, i, ...item[r])) }));
-const chk = D.bugLinkCheck(racks), byId = id => chk.common.concat(chk.single).find(x => x.e.bug.id === id);
-assert.deepStrictEqual([byId(1).status, byId(1).problems], ['issue', ['R3 is Child — should be Related']]);
-assert.deepStrictEqual([byId(2).status, byId(2).anchor], ['ok', 1], 'R1 Passed -> Child on lowest Rack with the Bug');
-assert.deepStrictEqual([byId(3).status, byId(3).anchor, byId(3).problems], ['issue', 2, ['No Child on R3', 'R4 is Child — should be Related']], 'Not on R1 (R1 Failed) -> Child on lowest Rack');
-assert.deepStrictEqual([byId(4).status, byId(4).problems], ['issue', ['Only Related on R2 — should be Child']]);
-assert.deepStrictEqual([byId(9).status, chk.missing, chk.perRack[3].missing], ['ok', 1, 1]);
-assert.deepStrictEqual([chk.common.length, chk.single.length, chk.issues.length, chk.commonOk], [3, 4, 3, 1]);
-const five = chk.single.filter(x => x.e.bug.id === 5);
-assert.deepStrictEqual(five.map(x => [x.anchor, x.status]), [[1, 'ok'], [4, 'ok']], 'Same Bug on different test items is judged separately');
-assert.deepStrictEqual(chk.report.notInList.map(x => x.bug.id).sort(), [4, 5, 9]);
-console.log('PASS: bug link check applies the Child-on-Rack-1 / Related-elsewhere rule, Passed-R1 fallback, not-on-R1 lowest-Rack Child, per-test-item judgement and missing cases');
+const chk = D.bugLinkCheck(racks), byId = id => chk.all.find(x => x.e.bug.id === id);
+assert.deepStrictEqual([byId(1).status, byId(1).home.testCase.id, chk.expectedOf['1|item 1|0']], ['ok', 100, 'related']);
+assert.deepStrictEqual([byId(2).status, byId(2).problems, chk.expectedOf['2|item 1|1'], chk.expectedOf['2|item 1|2']], ['issue', ['Child on R3 — should be on R2'], 'child', 'related']);
+assert.deepStrictEqual([byId(3).status, byId(3).problems, byId(3).suggest.testCase.id], ['issue', ['No Child (Parent) Case'], 202]);
+assert.deepStrictEqual([byId(4).status, chk.single.map(x => x.e.bug.id).sort()], ['ok', [4, 6]]);
+assert.deepStrictEqual([byId(6).status, byId(6).elsewhere], ['ok', '#99999 (not in this Query)']);
+assert.deepStrictEqual(chk.r1Common.map(x => x.e.bug.id), [1]);
+assert.deepStrictEqual([chk.common.length, chk.issues.length, chk.noChild, chk.missing], [3, 2, 1, 1]);
+console.log('PASS: bug link check applies the one-Parent-per-Bug rule (Child on R1 / lowest Rack, Related elsewhere), suggestions and Parent outside the Phase');
