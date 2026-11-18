@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.17.1
+// @version      1.17.2
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2389,7 +2389,17 @@
   };
   // Test Cases linked to a Bug, from the Bug's own links: Parent (expected exactly one) and Child / Related.
   // Falls back to the Case-side links when the Bug's relations could not be read.
+  // Order linked Cases by Phase, then Rack 1 → 5, then Case ID; Cases outside the Query go last.
+  D.sortCaseLinks = function (list) {
+    function rackNo(l) { var m = /(\d+)\s*$/.exec(l.rack || ''); return l.rack ? (m ? +m[1] : 98) : 99; }
+    return list.slice().sort(function (a, b) { return ((a.phase === 'Phase 2') - (b.phase === 'Phase 2')) || rackNo(a) - rackNo(b) || (+a.caseId - +b.caseId); });
+  };
   D.bugLinkedCases = function (bug, fallback, index) {
+    var res = D.bugLinkedCasesRaw(bug, fallback, index);
+    res.parent = D.sortCaseLinks(res.parent); res.other = D.sortCaseLinks(res.other);
+    return res;
+  };
+  D.bugLinkedCasesRaw = function (bug, fallback, index) {
     index = index || D.caseIndexAll();
     function dec(r) { var k = index[r.id] || {}; return { caseId: r.id, link: r.link, title: k.title || r.title || '', rack: k.rack || '', phase: k.phase || '', project: r.project || '' }; }
     if (bug.relCases) return { parent: bug.relCases.parent.map(dec), other: bug.relCases.other.map(dec), parentOther: bug.relCases.parentOther || [], source: 'bug' };
@@ -2601,7 +2611,10 @@
         tr.appendChild(parentCell);
         var linkCell = D.el('td', 'bug-cases');
         if (!caseLinks.other.length) linkCell.textContent = '-';
-        caseLinks.other.forEach(function (l) { linkCell.appendChild(caseChip(l, l.link === 'child' ? 'child' : 'related')); });
+        // Rack 1 → 5, filled top to bottom, then left to right.
+        var grid = D.el('div', 'bug-case-grid'); if (caseLinks.other.length >= 4) { grid.className += ' two'; grid.style.gridTemplateRows = 'repeat(' + Math.ceil(caseLinks.other.length / 2) + ', auto)'; }
+        caseLinks.other.forEach(function (l) { grid.appendChild(caseChip(l, l.link === 'child' ? 'child' : 'related')); });
+        if (caseLinks.other.length) linkCell.appendChild(grid);
         tr.appendChild(linkCell); tbody.appendChild(tr);
       });
       if (!shown) { var er = D.el('tr'), ec = D.el('td', 'empty', 'No Bugs match the filter.'); ec.colSpan = cols.length; er.appendChild(ec); tbody.appendChild(er); }
@@ -2677,7 +2690,7 @@
   D.CSS += "\n.phase-tab[data-view='bugs']{--phase-accent:#fb923c}.phase-tab[data-view='portal']{--phase-accent:#34d399}.phase-tab.extra-tab{flex:0 1 220px}.phase-tab.portal-sep{margin-left:auto}@media(max-width:620px){.phase-tab.portal-sep{margin-left:0}}"
     + "\n.extra-view{padding:16px 20px 28px;min-width:0}.extra-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px}.extra-head h2{margin:0;font-size:20px;color:#e2e8f0}.extra-head a{color:#93c5fd}.extra-head button{margin-left:auto}"
     + "\n.bug-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}.bug-toolbar input{flex:1 1 280px;min-width:200px;padding:7px 10px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.bug-toolbar select{min-width:160px}"
-    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1500px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{white-space:nowrap}.bug-noparent{display:inline-block;padding:0 7px;border-radius:999px;border:1px dashed #f87171;color:#f87171;font-size:10.5px;font-weight:700;cursor:help}.bug-case-link{display:inline-flex;align-items:center;gap:2px;margin:0 8px 2px 0;white-space:nowrap}.bug-list-table td{vertical-align:top}"
+    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1500px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{white-space:nowrap}.bug-noparent{display:inline-block;padding:0 7px;border-radius:999px;border:1px dashed #f87171;color:#f87171;font-size:10.5px;font-weight:700;cursor:help}.bug-case-link{display:inline-flex;align-items:center;gap:2px;margin:0 8px 2px 0;white-space:nowrap}.bug-case-grid{display:grid;grid-auto-flow:row;justify-content:start}.bug-case-grid.two{grid-auto-flow:column;column-gap:4px}.bug-list-table td{vertical-align:top}"
     + "\n.portal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.portal-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:#111d33;border:1px solid #253858;border-left:4px solid #34d399}.portal-card.unset{border-left-color:#fbbf24}"
     + "\n.portal-title{font-size:15px;font-weight:700;color:#e2e8f0}.portal-host{font-size:12px;color:#93c5fd;word-break:break-all}.portal-card.unset .portal-host{color:#fbbf24}.portal-actions{display:flex;gap:8px;margin-top:6px;align-items:center}.portal-actions button{width:auto}"
     + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";
