@@ -17,4 +17,9 @@ assert.deepStrictEqual([fan.counts.Failed, fan.counts.Passed, fan.present], [2, 
 assert.deepStrictEqual([bmc.cells[0].outcome, bmc.cells[1].outcome, bmc.cells[2], bmc.present], ['Active', 'Blocked', null, 2]);
 assert.deepStrictEqual(D.sortOutcomeMatrix(rows, 'failed').map(r => r.title), ['Fan test', 'BMC test', 'PSU test']);
 assert.deepStrictEqual(D.sortOutcomeMatrix(rows, 'passed').map(r => r.title), ['PSU test', 'Fan test', 'BMC test']);
-console.log('PASS: matrix rows hold each Rack\'s outcome per test item and sort by Failed / Passed');
+// Same-title Cases on one Rack: both kept, each in its own row.
+racks[0].children.push({ id: 999, type: 'Test Case', title: 'Fan test', latestTestPoint: { outcome: 'Passed' } });
+const dupRows = D.outcomeMatrixRows(racks).filter(r => r.baseTitle === 'Fan test');
+assert.deepStrictEqual(dupRows.map(r => [r.title, r.cells[0] && r.cells[0].testCase.id, r.present]), [['Fan test (same title 1/2)', 100, 3], ['Fan test (same title 2/2)', 999, 1]]);
+assert.strictEqual(D.outcomeMatrixRows(racks).reduce((n, r) => n + r.present, 0), racks.reduce((n, r) => n + r.children.length, 0), 'every Case counted once');
+console.log('PASS: matrix rows hold each Rack\'s outcome per test item, keep same-title Cases, and sort by Failed / Passed');

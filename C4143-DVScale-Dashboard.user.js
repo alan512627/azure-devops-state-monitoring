@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.16.6
+// @version      1.16.7
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2828,9 +2828,9 @@
   };
   D.OUTCOME_ABBR = { Passed: 'P', Failed: 'F', Blocked: 'B', 'Not Applicable': 'NA', Active: 'A' };
   D.outcomeMatrixRows = function (racks) {
-    var index = D.crossRackIndex(racks);
-    return Object.keys(index).map(function (key) {
-      var cells = index[key].map(function (testCase) {
+    // Same Racks and Case IDs as the Phase tab; same-title Cases on one Rack get their own row (see D.crossRackRows).
+    return D.crossRackRows(racks).map(function (xr) {
+      var key = xr.key, cells = xr.cases.map(function (testCase) {
         if (!testCase) return null;
         var o = D.caseOutcome(testCase);
         return { testCase: testCase, outcome: D.resultOutcomeKey(o && o.outcome) };
@@ -2838,7 +2838,8 @@
       var counts = { Passed: 0, Failed: 0, Blocked: 0, 'Not Applicable': 0, Active: 0 };
       cells.forEach(function (cell) { if (cell) counts[cell.outcome]++; });
       var first = cells.filter(Boolean)[0];
-      return { key: key, title: first ? first.testCase.title : key, cells: cells, counts: counts, present: cells.filter(Boolean).length };
+      var baseTitle = first ? first.testCase.title : key;
+      return { key: key, baseTitle: baseTitle, dup: xr.dup, dupOf: xr.dupOf, title: baseTitle + (xr.dup ? ' (same title ' + xr.dup + '/' + xr.dupOf + ')' : ''), cells: cells, counts: counts, present: cells.filter(Boolean).length };
     });
   };
   D.sortOutcomeMatrix = function (rows, mode) {
@@ -2854,7 +2855,7 @@
     var wrap = D.el('div', 'omatrix'), rows = D.outcomeMatrixRows(racks), mode = D.S.matrixSort || 'failed', only = D.S.matrixFilter || 'all', group = D.S.matrixGroup || 'category';
     D.S.matrixCatCollapsedByPhase = D.S.matrixCatCollapsedByPhase || {};
     var collapsedMap = D.S.matrixCatCollapsedByPhase[D.S.phase || 'phase1'] = D.S.matrixCatCollapsedByPhase[D.S.phase || 'phase1'] || {};
-    rows.forEach(function (row) { row.category = D.caseCategory(row.title); });
+    rows.forEach(function (row) { row.category = D.caseCategory(row.baseTitle || row.title); });
     var tools = D.el('div', 'bug-toolbar'), sortSel = D.el('select'), filterSel = D.el('select'), groupSel = D.el('select');
     [['category', 'Group: by category'], ['none', 'Group: none']].forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; groupSel.appendChild(opt); });
     groupSel.value = group;
