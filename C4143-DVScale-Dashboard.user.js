@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.17.0
+// @version      1.17.1
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -3548,6 +3548,7 @@
   };
   D.CSS += "\n.lc-missing{background:rgba(248,113,113,.16)!important;box-shadow:inset 0 0 0 1px #f87171;cursor:help}.lc-tip{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;border:1px solid #f87171;color:#fecaca;font-size:10px;font-weight:700}"
     + "\n.conv-bad{color:#fb923c!important;font-weight:800}.conv-issue{color:#fb923c;font-weight:700}.conv-ok{color:#34d399;font-weight:700}.itb-kind.conv-wrong{outline:2px solid #f87171;outline-offset:1px}"
+    + "\n.itb-cell .omatrix-cell{display:inline-block;margin-bottom:3px}.itb-cell .itb-bug{display:flex;width:max-content;margin:0 0 3px 0}.itb-cell .itb-older,.itb-cell .itb-missing{display:block;width:max-content;margin:0 0 3px 0}.itb-cell{min-width:96px}"
     + "\n.itb-kind.lc-suggest{outline:2px dashed #fb923c;outline-offset:1px}.itb-bug.lc-focus{background:rgba(56,189,248,.18);border-radius:4px}.lc-focus-btn{background:#0f1a2e;border:1px solid #38bdf8;color:#7dd3fc;border-radius:6px;padding:1px 8px;font:inherit;font-weight:700;cursor:pointer}.lc-focus-btn.on{margin-left:8px;background:#0c4a6e;color:#e0f2fe}.lc-focus-row td{background:rgba(56,189,248,.08)}"
     + "\n.phase-tab[data-view='links:phase1']{--phase-accent:#38bdf8}.phase-tab[data-view='links:phase2']{--phase-accent:#c084fc}";
   D.buildPanels = function () {
