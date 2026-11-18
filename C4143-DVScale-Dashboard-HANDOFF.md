@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.17.1，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.17.2，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1479,3 +1479,4 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - （v1.16.9）Child 目標讀取改用 `D.safeBatch`：某批請求失敗（例如其中一個 Child 是沒有權限的 work item，回 403）時，自動二分拆批找出問題 ID 並跳過，不再整批失敗、清空所有 Child link。`D.S.childLinkStats` 記錄目標數、跳過的 ID 與錯誤；Bug Links 頁首新增 `Links read: n Child / n Related …` 診斷列（Child 為 0 但有 Related 時以橘色顯示）。
 - （v1.17.0）Bug Links 改為**一個 Bug 一個 Parent** 規則（ADO 不允許第二個 Parent）：`D.bugLinkCheck` 改以 Bug 為單位（跨測項、跨 Rack），每個 Bug 的 Child Case 為主 Case（`entry.home`，表上標 `C★`），其餘 Case 一律 Related；主 Case 須在 Rack 1（Bug 出現在 Rack 1 時）否則最小號 Rack（`entry.anchor`），不符時列 issue 並建議該 Rack 的 Case（`entry.suggest`，橘色虛框）。本 Phase 沒有 Child 時，用 Bug List 的 `relCases.parent` 判斷 Parent 是否在本 Phase 以外（`entry.elsewhere`，視為正確）。新增 `R1 COMMON BUGS` 卡、Rack 1 common Bugs 表（點 Bug 篩選測項表，`D.S.linkCheckBug`）、`chk.tipOf` 滑鼠提示。取代 v1.16.5 的「以測項為單位」判斷。
 - （v1.17.1）測項 × Rack 表（Bug Links 與 In-test bugs）格子內的 Bug ID 改為直式：outcome 在上，每個 Bug ID（含 C／R 標記）各佔一行（`.itb-cell .itb-bug{display:flex}`）。
+- （v1.17.2）Bug List 的 Parent 與 Child／Related Test Case 依 Phase → Rack 1～5 → Case ID 排序（`D.sortCaseLinks`，不在 Query 的 Case 排最後；匯出同序）。Child／Related 欄 4 個以上時排成兩欄，由上到下、再由左到右（`.bug-case-grid.two`，grid column flow）。
