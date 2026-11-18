@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.16.8，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.16.9，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1476,3 +1476,4 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - （v1.16.6）修正 Bug Links／In-test bugs 漏 Case：原本 `D.inTestReport` 用 `D.crossRackIndex`，同一 Rack 若有多個同標題 Case 只取第一個，其餘 Case 與其 Bug link 被忽略（例如 R1 對到沒掛 Bug 的同名 Case，顯示 Failed without bug）。新增 `D.crossRackRows`：保留每個 Rack 的每個 Case，同標題多個時依 Case ID 排序各自成列（標 `same title n/N`）。Bug Links 頁首顯示 `Cases checked: n / N`，與 Phase 分頁的 Case 數比對。測試：`tests/cross-rack-rows.test.cjs`。
 - （v1.16.7）Overview 的 Test item × Rack outcome matrix（`D.outcomeMatrixRows`）也改用 `D.crossRackRows`：同一 Rack 的同標題 Case 各自一列，不再只取第一個；`row.baseTitle` 保留原標題供分類判斷。Cross-Rack title review 與 R1–R5 chips 仍以標題對應（用途是找缺漏的標題）。
 - （v1.16.8）修正 Child Bug 全部讀不到：Case 的 Child（Hierarchy-Forward）目標若有其他 Project／Process 的 work item（例如其他 Project 的 Test Case），原本讀取目標欄位時一併要求自訂 metric 欄位（如 `Custom.Number_of_cycles`），整批回 400，進入 catch 後 `linkedIdsOf` 被清空，所有 Case 的 Child Bug 都變 0（只剩 Related）。改為只讀基本欄位（加 `System.TeamProject`），Bug 的 Severity／Priority 另以選用請求補上。與 #53 Related 的問題相同根因。
+- （v1.16.9）Child 目標讀取改用 `D.safeBatch`：某批請求失敗（例如其中一個 Child 是沒有權限的 work item，回 403）時，自動二分拆批找出問題 ID 並跳過，不再整批失敗、清空所有 Child link。`D.S.childLinkStats` 記錄目標數、跳過的 ID 與錯誤；Bug Links 頁首新增 `Links read: n Child / n Related …` 診斷列（Child 為 0 但有 Related 時以橘色顯示）。
