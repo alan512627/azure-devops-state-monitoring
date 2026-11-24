@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.17.2
+// @version      1.17.3
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2841,18 +2841,23 @@
   // reference title first, then to the keyword rules (checked in this order), otherwise they fall into Other.
   D.TEST_CATEGORIES = [
     { name: 'BIOS OpMode', reviewer: '', refs: [5], keywords: [/\bbios\b/] },
-    { name: 'Enumeration', reviewer: 'Penny', refs: [1, 2, 3, 4], keywords: [/enumerat/, /\bfru\b/] },
+    { name: 'Enumeration', reviewer: 'Penny', reviewerByPhase: { phase2: 'Rayden' }, refs: [1, 2, 3, 4], keywords: [/enumerat/, /\bfru\b/] },
     { name: 'FW update', reviewer: 'Paul', refs: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], keywords: [/firmware update|fw update|\bfw\b.*\bupdate|update.*\b(fw|firmware|ifwi|bmc|cmc|omc|stos)\b|service config update/] },
     { name: 'Power cycling', reviewer: 'Raymond', refs: [17, 18, 19, 20, 21, 22, 23, 24, 25], keywords: [/\b(ac|dc)\b.*cycle|warm reboot|\bpxe\b/] },
     { name: 'Stress', reviewer: 'Rex', refs: [26, 27], keywords: [/stress/] },
     { name: 'Virtualization', reviewer: 'Rex', refs: [28, 29, 30, 31, 32, 35], keywords: [/\bvms?\b|sr-?iov|virtual|guest os/] },
     { name: 'MPF', reviewer: 'Youyu', refs: [33, 34], keywords: [/\bmpf\b/] },
     { name: 'Performance', reviewer: 'Youyu', refs: [36, 37], keywords: [/diskspd|full-?duplex|performance|ntttcp|iostat/] },
-    { name: 'RSCM CLI', reviewer: 'Penny', refs: [38, 39, 40, 41], keywords: [/r-?scm command to|show manager|powershelf|show system|set operations/] }
+    { name: 'RSCM CLI', reviewer: 'Penny', reviewerByPhase: { phase2: 'Rayden' }, refs: [38, 39, 40, 41], keywords: [/r-?scm command to|show manager|powershelf|show system|set operations/] }
   ];
   D.CATEGORY_KEYWORD_ORDER = ['BIOS OpMode', 'Enumeration', 'RSCM CLI', 'FW update', 'Power cycling', 'MPF', 'Virtualization', 'Performance', 'Stress'];
   D.CATEGORY_OTHER = 'Other';
-  D.categoryReviewer = function (name) { var c = D.TEST_CATEGORIES.filter(function (x) { return x.name === name; })[0]; return c && c.reviewer || ''; };
+  // Log reviewer of a category; reviewerByPhase overrides it for one Phase (default: the Phase being shown).
+  D.categoryReviewer = function (name, phase) {
+    var c = D.TEST_CATEGORIES.filter(function (x) { return x.name === name; })[0]; if (!c) return '';
+    phase = phase || (D.S && D.S.phase) || 'phase1';
+    return (c.reviewerByPhase && c.reviewerByPhase[phase]) || c.reviewer || '';
+  };
   D.categoryNames = function () { return D.TEST_CATEGORIES.map(function (c) { return c.name; }).concat([D.CATEGORY_OTHER]); };
   D.caseCategory = function (title) {
     var key = D.normalizedTitle(title); D._categoryCache = D._categoryCache || {};
@@ -3494,7 +3499,7 @@
       var members = rep.rows.filter(function (r) { return (r.category || '') === name && keep(r); }).sort(function (a, b) { return String(a.title).localeCompare(String(b.title)); });
       if (!members.length) return;
       var h = D.el('tr', 'omatrix-cat'), hc = D.el('td', 'omatrix-cat-name'); hc.colSpan = racks.length + 1; hc.appendChild(document.createTextNode(name + ' '));
-      var reviewer = D.categoryReviewer ? D.categoryReviewer(name) : ''; hc.appendChild(D.el('span', 'omatrix-cat-owner' + (reviewer ? '' : ' unset'), 'Log reviewer: ' + (reviewer || '—')));
+      var reviewer = D.categoryReviewer ? D.categoryReviewer(name, phase) : ''; hc.appendChild(D.el('span', 'omatrix-cat-owner' + (reviewer ? '' : ' unset'), 'Log reviewer: ' + (reviewer || '—')));
       h.appendChild(hc); mbody.appendChild(h);
       members.forEach(function (row) {
         var tr = D.el('tr'); tr.appendChild(D.el('td', 'itb-title', row.title));
