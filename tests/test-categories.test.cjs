@@ -14,4 +14,5 @@ const live = { 'Various VM type performance requirement test with MPF Configurat
 Object.keys(live).forEach(t => assert.strictEqual(D.caseCategory(t), live[t], t));
 assert.deepStrictEqual(D.TEST_CATEGORIES.map(c => [c.name, c.reviewer]), [['BIOS OpMode', ''], ['Enumeration', 'Penny'], ['FW update', 'Paul'], ['Power cycling', 'Raymond'], ['Stress', 'Rex'], ['Virtualization', 'Rex'], ['MPF', 'Youyu'], ['Performance', 'Youyu'], ['RSCM CLI', 'Penny']]);
 assert.strictEqual(D.categoryReviewer('MPF'), 'Youyu');
+assert.deepStrictEqual([D.categoryReviewer('Enumeration', 'phase1'), D.categoryReviewer('Enumeration', 'phase2'), D.categoryReviewer('RSCM CLI', 'phase2'), D.categoryReviewer('MPF', 'phase2')], ['Penny', 'Rayden', 'Rayden', 'Youyu'], 'Phase 2: Penny -> Rayden');
 console.log('PASS: all 41 reference Cases and live-style titles map to the agreed categories with their Log reviewers');
