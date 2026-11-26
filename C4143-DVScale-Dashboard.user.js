@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.18.0
+// @version      1.18.1
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2571,7 +2571,8 @@
       var src = D.el('a', 'small', 'Source query: ' + extras.bugQuery.name + ' ↗'); src.href = extras.bugQuery.org + '/' + encodeURIComponent(extras.bugQuery.project) + '/_queries/query/' + extras.bugQuery.queryId + '/'; src.target = '_blank'; src.rel = 'noopener'; head.appendChild(src);
     }
     var reload = D.el('button', 'primary', 'Reload bugs'); reload.addEventListener('click', function () { D.S.bugList = { status: 'loading', items: [] }; D.renderExtraView(); D.loadBugList().then(D.renderExtraView); }); head.appendChild(reload);
-    wrap.appendChild(head);
+    // Title, sub-tabs and cards stay pinned under the top bar; only the content below scrolls.
+    var stickyTop = D.el('div', 'panel-sticky bug-sticky'); stickyTop.appendChild(head); wrap.appendChild(stickyTop);
     if (!extras || !extras.bugQuery) { wrap.appendChild(D.el('div', 'empty', 'No Bug query is configured for this Query.')); return wrap; }
     if (list.status === 'loading' && !list.items.length) { wrap.appendChild(D.el('div', 'empty', 'Loading Bugs from the query …')); return wrap; }
     if (list.status === 'error') wrap.appendChild(D.el('div', 'empty', 'Bug query failed: ' + list.error));
@@ -2588,15 +2589,15 @@
       btn.addEventListener('click', function () { D.S.bugSub = t[0]; try { localStorage.setItem('dvdashBugSub', t[0]); } catch (e) {} D.renderExtraView(); });
       subBar.appendChild(btn);
     });
-    wrap.appendChild(subBar);
-    if (sub === 'overview') { wrap.appendChild(D.bugListOverview(allItems, linkedOf)); return wrap; }
+    stickyTop.appendChild(subBar);
+    if (sub === 'overview') { var ov = D.bugListOverview(allItems, linkedOf), ovCards = ov.querySelector('.cards'); if (ovCards) stickyTop.appendChild(ovCards); wrap.appendChild(ov); return wrap; }
     var items = split[sub] || [], phaseName = sub === 'phase2' ? 'Phase 2' : 'Phase 1';
     var open = items.filter(D.bugIsOpen).length, linked = items.filter(function (b) { return linkedOf[b.id].parent.length; }).length, noParent = items.length - linked;
     var resolved = items.filter(function (b) { return /^resolved$/i.test(b.state); }).length, closed = items.filter(function (b) { return /^(closed|done)$/i.test(b.state); }).length;
     var cards = D.el('div', 'cards');
     [D.card('TOTAL BUGS', items.length, '#fb923c'), D.card('OPEN', open, '#f87171'), D.card('RESOLVED', resolved, '#fbbf24'), D.card('CLOSED', closed, '#34d399'), D.card('WITH PARENT CASE', linked + ' / ' + items.length, '#60a5fa'), D.card('NO PARENT CASE', noParent, noParent ? '#f87171' : '#34d399')]
       .forEach(function (c) { cards.appendChild(c); });
-    wrap.appendChild(cards);
+    stickyTop.appendChild(cards);
     var stateCounts = {}, sevCounts = {};
     items.forEach(function (b) { var s = b.state || 'Unknown'; stateCounts[s] = (stateCounts[s] || 0) + 1; var v = b.severity || 'Not set'; sevCounts[v] = (sevCounts[v] || 0) + 1; });
     var grid = D.el('div', 'grid'), b1 = D.box('Bug state distribution'), b2 = D.box('Bug severity');
@@ -2749,7 +2750,7 @@
   D.CSS += "\n.phase-tab[data-view='bugs']{--phase-accent:#fb923c}.phase-tab[data-view='portal']{--phase-accent:#34d399}.phase-tab.extra-tab{flex:0 1 220px}.phase-tab.portal-sep{margin-left:auto}@media(max-width:620px){.phase-tab.portal-sep{margin-left:0}}"
     + "\n.extra-view{padding:16px 20px 28px;min-width:0}.extra-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px}.extra-head h2{margin:0;font-size:20px;color:#e2e8f0}.extra-head a{color:#93c5fd}.extra-head button{margin-left:auto}"
     + "\n.bug-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}.bug-toolbar input{flex:1 1 280px;min-width:200px;padding:7px 10px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.bug-toolbar select{min-width:160px}"
-    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1500px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{white-space:nowrap}.bug-noparent{display:inline-block;padding:0 7px;border-radius:999px;border:1px dashed #f87171;color:#f87171;font-size:10.5px;font-weight:700;cursor:help}.bug-case-link{display:inline-flex;align-items:center;gap:2px;margin:0 8px 2px 0;white-space:nowrap}.bug-subtabs{display:flex;gap:6px;margin:0 0 12px}.bug-subtab{background:#0f1a2e;border:1px solid #1e2b45;color:#94a3b8;border-radius:8px;padding:6px 16px;font:inherit;font-weight:700;cursor:pointer}.bug-subtab.active{background:#1e3a5f;border-color:#38bdf8;color:#e0f2fe}.bug-phase-sum td.bold{font-weight:800}.bug-phase-section td{color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding-top:10px}.bug-case-grid{display:grid;grid-auto-flow:row;justify-content:start}.bug-case-grid.two{grid-auto-flow:column;column-gap:4px}.bug-list-table td{vertical-align:top}"
+    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1500px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{white-space:nowrap}.bug-noparent{display:inline-block;padding:0 7px;border-radius:999px;border:1px dashed #f87171;color:#f87171;font-size:10.5px;font-weight:700;cursor:help}.bug-case-link{display:inline-flex;align-items:center;gap:2px;margin:0 8px 2px 0;white-space:nowrap}.bug-sticky .extra-head{margin-bottom:10px}.bug-sticky .bug-subtabs{margin-bottom:10px}.bug-subtabs{display:flex;gap:6px;margin:0 0 12px}.bug-subtab{background:#0f1a2e;border:1px solid #1e2b45;color:#94a3b8;border-radius:8px;padding:6px 16px;font:inherit;font-weight:700;cursor:pointer}.bug-subtab.active{background:#1e3a5f;border-color:#38bdf8;color:#e0f2fe}.bug-phase-sum td.bold{font-weight:800}.bug-phase-section td{color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding-top:10px}.bug-case-grid{display:grid;grid-auto-flow:row;justify-content:start}.bug-case-grid.two{grid-auto-flow:column;column-gap:4px}.bug-list-table td{vertical-align:top}"
     + "\n.portal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.portal-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:#111d33;border:1px solid #253858;border-left:4px solid #34d399}.portal-card.unset{border-left-color:#fbbf24}"
     + "\n.portal-title{font-size:15px;font-weight:700;color:#e2e8f0}.portal-host{font-size:12px;color:#93c5fd;word-break:break-all}.portal-card.unset .portal-host{color:#fbbf24}.portal-actions{display:flex;gap:8px;margin-top:6px;align-items:center}.portal-actions button{width:auto}"
     + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";

@@ -5,7 +5,7 @@
 | 文件版本 | 3.2 |
 | 初版日期 | 2026-07-28 |
 | 最後更新 | 2026-11-01 |
-| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.18.0，本分支待合併 `main`） |
+| 最新腳本 | `C4143-DVScale-Dashboard.user.js`（v1.18.1，本分支待合併 `main`） |
 | 最新腳本大小 | 208,132 bytes；SHA-256 `31F7BCB4FA81B5C53B73C478D605F99D8E54363BE6D8FE9E7977213AB05C8638` |
 | 執行環境 | Chrome + Tampermonkey，需已登入 Azure DevOps（azurecsi） |
 
@@ -1482,3 +1482,4 @@ Tampermonkey 會按設定的更新間隔讀取固定 URL，比較 `@version`，�
 - （v1.17.2）Bug List 的 Parent 與 Child／Related Test Case 依 Phase → Rack 1～5 → Case ID 排序（`D.sortCaseLinks`，不在 Query 的 Case 排最後；匯出同序）。Child／Related 欄 4 個以上時排成兩欄，由上到下、再由左到右（`.bug-case-grid.two`，grid column flow）。
 - （v1.17.3）Log reviewer 可依 Phase 設定：`D.TEST_CATEGORIES` 新增 `reviewerByPhase`，`D.categoryReviewer(name, phase)`（未給 phase 時用目前 Phase）。Phase 2 的 Enumeration、RSCM CLI 由 Penny 改為 Rayden；Phase 1 不變。
 - （v1.18.0）Bug List 拆成三個子分頁（`D.S.bugSub`：overview／phase1／phase2，記在 localStorage `dvdashBugSub`）。Phase 判斷：`D.bugPhase(bug)`，Tags 含 `D.BUG_PHASE2_TAG`（`C4143_Scale_Phase2`，以 `D.tagTokens` 正規化比對）為 Phase 2，其餘 Phase 1；`D.bugPhaseSummary` 分組。Overview（`D.bugListOverview`）：卡片（Total／Phase 1／Phase 2／各 Phase Open）、Phase 1 vs Phase 2 vs Total 對照表（Bugs、Open、有／無 Parent Case、各 State、各 Severity）、兩個 Phase 的 State 圓餅圖。Phase 子分頁沿用原 Bug List 畫面，只列該 Phase 的 Bug；匯出檔名含 `Phase-1-`／`Phase-2-`。測試：`tests/bug-phase.test.cjs`。
+- （v1.18.1）Bug List 的標題列（Bug List、Source query、Reload bugs）、子分頁與卡片放進 `panel-sticky bug-sticky`，固定在頂部列下方，只有下面的圖表與表格捲動（與 Phase 分頁相同機制；視窗高度 ≤ 700px 或寬度 ≤ 980px 時不固定）。
