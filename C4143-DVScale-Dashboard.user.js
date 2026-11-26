@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         C4143 DV-Scale Rack Test Status Dashboard
 // @namespace    local.ado.dvscale.dashboard
-// @version      1.17.3
+// @version      1.18.0
 // @description  Adds Bug List and MSFT-Misc Portal tabs next to the Phase tabs; uses five fixed Execute Test Point outcomes (queried by Test Case ID across all plans, rates over all Cases) by Rack, distinct colors, compact metrics, and staged background supplemental loading.
 // @homepageURL  https://github.com/alan512627/azure-devops-state-monitoring
 // @supportURL   https://github.com/alan512627/azure-devops-state-monitoring/issues
@@ -2457,7 +2457,52 @@
     return [bug.id, bug.title, bug.state, bug.reason, bug.severity, bug.priority, bug.assignedTo && bug.assignedTo !== '-' ? bug.assignedTo : 'Unassigned', bug.createdBy && bug.createdBy !== '-' ? bug.createdBy : '',
       D.fmt(bug.created), D.fmt(bug.changed), (c.parent || []).map(fmtL).join('; '), (c.other || []).map(fmtL).join('; '), bug.tags, bug.area, bug.url];
   };
-  D.bugExportName = function (ext) { return D.reportPrefix() + '-Bug-List-' + D.reportStamp() + '.' + ext; };
+  D.bugExportName = function (ext) { var sub = D.S.bugSub === 'phase2' ? 'Phase-2-' : D.S.bugSub === 'phase1' ? 'Phase-1-' : ''; return D.reportPrefix() + '-Bug-List-' + sub + D.reportStamp() + '.' + ext; };
+  // Phase of a Bug: Phase 2 when its Tags contain C4143_Scale_Phase2 (case, space, _ and - ignored); otherwise Phase 1.
+  D.BUG_PHASE2_TAG = 'C4143_Scale_Phase2';
+  D.bugPhase = function (bug) {
+    var want = D.tagTokens(D.BUG_PHASE2_TAG)[0];
+    return D.tagTokens(bug && bug.tags).indexOf(want) >= 0 ? 'phase2' : 'phase1';
+  };
+  D.bugPhaseSummary = function (items) {
+    var res = { phase1: [], phase2: [] };
+    (items || []).forEach(function (b) { res[D.bugPhase(b)].push(b); });
+    return res;
+  };
+  D.bugListOverview = function (all, linkedOf) {
+    var wrap = D.el('div'), split = D.bugPhaseSummary(all), sets = [['Phase 1', split.phase1], ['Phase 2', split.phase2], ['Total', all]];
+    var cards = D.el('div', 'cards');
+    [D.card('TOTAL BUGS', all.length, '#fb923c'), D.card('PHASE 1 BUGS', split.phase1.length, '#38bdf8'), D.card('PHASE 2 BUGS', split.phase2.length, '#c084fc'),
+      D.card('PHASE 1 OPEN', split.phase1.filter(D.bugIsOpen).length, '#f87171'), D.card('PHASE 2 OPEN', split.phase2.filter(D.bugIsOpen).length, '#f87171')].forEach(function (c) { cards.appendChild(c); });
+    wrap.appendChild(cards);
+    wrap.appendChild(D.el('div', 'small fb-note', 'Phase 2 Bug = the Bug\'s Tags contain "' + D.BUG_PHASE2_TAG + '"; every other Bug in the Bug query is Phase 1.'));
+    var states = D.orderBugStates(Object.keys(all.reduce(function (m, b) { m[b.state || 'Unknown'] = 1; return m; }, {})));
+    var sevs = Object.keys(all.reduce(function (m, b) { m[b.severity || 'Not set'] = 1; return m; }, {})).sort();
+    var rows = [['Bugs', function (l) { return l.length; }, 'bold'], ['Open', function (l) { return l.filter(D.bugIsOpen).length; }],
+      ['With parent Test Case', function (l) { return l.filter(function (b) { return linkedOf[b.id].parent.length; }).length; }],
+      ['No parent Test Case', function (l) { return l.filter(function (b) { return !linkedOf[b.id].parent.length; }).length; }, 'warn']]
+      .concat([['State', null, 'section']]).concat(states.map(function (st) { return ['· ' + st, function (l) { return l.filter(function (b) { return (b.state || 'Unknown') === st; }).length; }]; }))
+      .concat([['Severity', null, 'section']]).concat(sevs.map(function (sv) { return ['· ' + sv, function (l) { return l.filter(function (b) { return (b.severity || 'Not set') === sv; }).length; }]; }));
+    var box = D.box('Phase 1 vs Phase 2'), sc = D.el('div', 'table-scroll'), t = D.el('table', 'fb-sum bug-phase-sum'), hr = D.el('tr'), th = D.el('thead');
+    hr.appendChild(D.el('th', null, '')); sets.forEach(function (x) { hr.appendChild(D.el('th', 'num', x[0])); }); th.appendChild(hr); t.appendChild(th);
+    var tb = D.el('tbody');
+    rows.forEach(function (r) {
+      var tr = D.el('tr', r[2] === 'section' ? 'bug-phase-section' : null); tr.appendChild(D.el('td', r[2] === 'bold' ? 'bold' : null, r[0]));
+      sets.forEach(function (x) { var v = r[1] ? r[1](x[1]) : ''; tr.appendChild(D.el('td', 'num' + (r[2] === 'warn' && v ? ' conv-bad' : '') + (r[2] === 'bold' ? ' bold' : ''), String(v))); });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); sc.appendChild(t); box.appendChild(sc); wrap.appendChild(box);
+    var grid = D.el('div', 'grid');
+    [['Phase 1', split.phase1], ['Phase 2', split.phase2]].forEach(function (x) {
+      var counts = {}; x[1].forEach(function (b) { var st = b.state || 'Unknown'; counts[st] = (counts[st] || 0) + 1; });
+      var b = D.box(x[0] + ' — Bug state (' + x[1].length + ')');
+      if (!x[1].length) b.appendChild(D.el('div', 'empty', 'No Bugs'));
+      else { var c = D.el('div', 'chartwrap'); c.appendChild(D.pie(counts, D.orderBugStates, D.bugStateColor, 'bugs')); b.appendChild(c); b.appendChild(D.legend(counts, D.orderBugStates, D.bugStateColor)); }
+      grid.appendChild(b);
+    });
+    wrap.appendChild(grid);
+    return wrap;
+  };
   D.bugFilterLabel = function () {
     var st = D.S.bugFilterState || '__all', q = String(D.S.bugFilterText || '').trim();
     return (st === '__all' ? 'All states' : st === '__open' ? 'Open only' : 'State = ' + st) + (q ? ' · search "' + q + '"' : '');
@@ -2531,8 +2576,21 @@
     if (list.status === 'loading' && !list.items.length) { wrap.appendChild(D.el('div', 'empty', 'Loading Bugs from the query …')); return wrap; }
     if (list.status === 'error') wrap.appendChild(D.el('div', 'empty', 'Bug query failed: ' + list.error));
     if (list.status === 'idle') { wrap.appendChild(D.el('div', 'empty', 'Bugs load after the main query finishes.')); return wrap; }
-    var items = list.items || [], fallbackLinks = D.bugCaseLinks(), caseIndex = D.caseIndexAll(), linkedOf = {};
-    items.forEach(function (b) { linkedOf[b.id] = D.bugLinkedCases(b, fallbackLinks, caseIndex); });
+    var allItems = list.items || [], fallbackLinks = D.bugCaseLinks(), caseIndex = D.caseIndexAll(), linkedOf = {};
+    allItems.forEach(function (b) { linkedOf[b.id] = D.bugLinkedCases(b, fallbackLinks, caseIndex); });
+    // Sub-tabs: Overview / Phase 1 Bugs / Phase 2 Bugs (Phase 2 = Tags contain C4143_Scale_Phase2).
+    var sub = D.S.bugSub || (function () { try { return localStorage.getItem('dvdashBugSub'); } catch (e) { return null; } })() || 'overview';
+    if (['overview', 'phase1', 'phase2'].indexOf(sub) < 0) sub = 'overview';
+    D.S.bugSub = sub;
+    var split = D.bugPhaseSummary(allItems), subBar = D.el('div', 'bug-subtabs');
+    [['overview', 'Overview · ' + allItems.length], ['phase1', 'Phase 1 Bugs · ' + split.phase1.length], ['phase2', 'Phase 2 Bugs · ' + split.phase2.length]].forEach(function (t) {
+      var btn = D.el('button', 'bug-subtab' + (sub === t[0] ? ' active' : ''), t[1]); btn.type = 'button'; btn.setAttribute('data-sub', t[0]);
+      btn.addEventListener('click', function () { D.S.bugSub = t[0]; try { localStorage.setItem('dvdashBugSub', t[0]); } catch (e) {} D.renderExtraView(); });
+      subBar.appendChild(btn);
+    });
+    wrap.appendChild(subBar);
+    if (sub === 'overview') { wrap.appendChild(D.bugListOverview(allItems, linkedOf)); return wrap; }
+    var items = split[sub] || [], phaseName = sub === 'phase2' ? 'Phase 2' : 'Phase 1';
     var open = items.filter(D.bugIsOpen).length, linked = items.filter(function (b) { return linkedOf[b.id].parent.length; }).length, noParent = items.length - linked;
     var resolved = items.filter(function (b) { return /^resolved$/i.test(b.state); }).length, closed = items.filter(function (b) { return /^(closed|done)$/i.test(b.state); }).length;
     var cards = D.el('div', 'cards');
@@ -2547,7 +2605,7 @@
     var c2 = D.el('div', 'chartwrap'); c2.appendChild(D.bar(sevCounts, sevOrder, D.severityColor)); b2.appendChild(c2); b2.appendChild(D.legend(sevCounts, sevOrder, D.severityColor));
     grid.appendChild(b1); grid.appendChild(b2); wrap.appendChild(grid);
 
-    var box = D.box('Bugs (' + items.length + ')'), toolbar = D.el('div', 'bug-toolbar');
+    var box = D.box(phaseName + ' Bugs (' + items.length + ')'), toolbar = D.el('div', 'bug-toolbar');
     var search = D.el('input'); search.type = 'search'; search.placeholder = 'Search ID, title, assignee, creator, tag, Case …'; search.value = D.S.bugFilterText || '';
     var stateSel = D.el('select'), states = D.orderBugStates(Object.keys(stateCounts));
     [['__all', 'All states'], ['__open', 'Open only'], ['__noparent', 'No parent Test Case']].concat(states.map(function (s) { return [s, s]; })).forEach(function (o) { var opt = D.el('option', null, o[1]); opt.value = o[0]; stateSel.appendChild(opt); });
@@ -2557,6 +2615,7 @@
     csvBtn.title = 'Bugs in the current filter and sort order'; xlsxBtn.title = 'Bugs sheet (current filter and sort) + Summary sheet'; pdfBtn.title = 'Summary, charts and Bug table — opens the print dialog; choose "Save as PDF"';
     csvBtn.addEventListener('click', function () { D.exportBugCsv(visible); });
     xlsxBtn.addEventListener('click', function () { D.exportBugExcel(visible, items); });
+    csvBtn.title += ' (' + phaseName + ')'; xlsxBtn.title += ' (' + phaseName + ')'; pdfBtn.title += ' (' + phaseName + ')';
     pdfBtn.addEventListener('click', function () {
       var shownStates = {}, shownSev = {};
       visible.forEach(function (v) { var s = v.bug.state || 'Unknown'; shownStates[s] = (shownStates[s] || 0) + 1; var sv = v.bug.severity || 'Not set'; shownSev[sv] = (shownSev[sv] || 0) + 1; });
@@ -2618,7 +2677,7 @@
         tr.appendChild(linkCell); tbody.appendChild(tr);
       });
       if (!shown) { var er = D.el('tr'), ec = D.el('td', 'empty', 'No Bugs match the filter.'); ec.colSpan = cols.length; er.appendChild(ec); tbody.appendChild(er); }
-      count.textContent = shown + ' of ' + items.length + ' Bugs' + (list.loadedAt ? ' · loaded ' + D.fmt(list.loadedAt) : '');
+      count.textContent = shown + ' of ' + items.length + ' ' + phaseName + ' Bugs' + (list.loadedAt ? ' · loaded ' + D.fmt(list.loadedAt) : '');
     }
     search.addEventListener('input', draw); stateSel.addEventListener('change', draw); draw();
     return wrap;
@@ -2690,7 +2749,7 @@
   D.CSS += "\n.phase-tab[data-view='bugs']{--phase-accent:#fb923c}.phase-tab[data-view='portal']{--phase-accent:#34d399}.phase-tab.extra-tab{flex:0 1 220px}.phase-tab.portal-sep{margin-left:auto}@media(max-width:620px){.phase-tab.portal-sep{margin-left:0}}"
     + "\n.extra-view{padding:16px 20px 28px;min-width:0}.extra-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px}.extra-head h2{margin:0;font-size:20px;color:#e2e8f0}.extra-head a{color:#93c5fd}.extra-head button{margin-left:auto}"
     + "\n.bug-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}.bug-toolbar input{flex:1 1 280px;min-width:200px;padding:7px 10px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.bug-toolbar select{min-width:160px}"
-    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1500px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{white-space:nowrap}.bug-noparent{display:inline-block;padding:0 7px;border-radius:999px;border:1px dashed #f87171;color:#f87171;font-size:10.5px;font-weight:700;cursor:help}.bug-case-link{display:inline-flex;align-items:center;gap:2px;margin:0 8px 2px 0;white-space:nowrap}.bug-case-grid{display:grid;grid-auto-flow:row;justify-content:start}.bug-case-grid.two{grid-auto-flow:column;column-gap:4px}.bug-list-table td{vertical-align:top}"
+    + "\n.bug-export{display:inline-flex;gap:6px;margin-left:auto}.bug-export button{width:auto;white-space:nowrap}.bug-list-table{min-width:1500px}.bug-list-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.bug-list-table td.bug-title{max-width:460px}.bug-list-table td.bug-cases a{white-space:nowrap}.bug-noparent{display:inline-block;padding:0 7px;border-radius:999px;border:1px dashed #f87171;color:#f87171;font-size:10.5px;font-weight:700;cursor:help}.bug-case-link{display:inline-flex;align-items:center;gap:2px;margin:0 8px 2px 0;white-space:nowrap}.bug-subtabs{display:flex;gap:6px;margin:0 0 12px}.bug-subtab{background:#0f1a2e;border:1px solid #1e2b45;color:#94a3b8;border-radius:8px;padding:6px 16px;font:inherit;font-weight:700;cursor:pointer}.bug-subtab.active{background:#1e3a5f;border-color:#38bdf8;color:#e0f2fe}.bug-phase-sum td.bold{font-weight:800}.bug-phase-section td{color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding-top:10px}.bug-case-grid{display:grid;grid-auto-flow:row;justify-content:start}.bug-case-grid.two{grid-auto-flow:column;column-gap:4px}.bug-list-table td{vertical-align:top}"
     + "\n.portal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.portal-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:#111d33;border:1px solid #253858;border-left:4px solid #34d399}.portal-card.unset{border-left-color:#fbbf24}"
     + "\n.portal-title{font-size:15px;font-weight:700;color:#e2e8f0}.portal-host{font-size:12px;color:#93c5fd;word-break:break-all}.portal-card.unset .portal-host{color:#fbbf24}.portal-actions{display:flex;gap:8px;margin-top:6px;align-items:center}.portal-actions button{width:auto}"
     + "\n.portal-open{display:inline-block;padding:6px 14px;border-radius:8px;background:#2563eb;color:#fff!important;text-decoration:none;font-weight:600;font-size:13px}.portal-edit{display:flex;gap:6px;margin-top:6px}.portal-edit input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid #253858;background:#0c1729;color:#e2e8f0}.portal-edit button{width:auto}";
